@@ -9,7 +9,6 @@ const (
 	Get       Opcode = 0x00
 	Set              = 0x01
 	Add              = 0x02
-	Replace          = 0x03
 	Delete           = 0x04
 	Increment        = 0x05
 	Decrement        = 0x06
@@ -24,8 +23,20 @@ func (c Opcode) String() string {
 		return "get"
 	case Set:
 		return "set"
+	case Add:
+		return "add"
+	case Noop:
+		return "noop"
+	case GetKQ:
+		return "get_kq"
+	case Delete:
+		return "delete"
 	case Version:
 		return "version"
+	case Increment:
+		return "increment"
+	case Decrement:
+		return "decrement"
 	}
 	return fmt.Sprintf("undefined Opcode: %d", c)
 }
