@@ -10,11 +10,10 @@ import (
 )
 
 func BenchmarkParallel(b *testing.B) {
-	cache, cancel, err := newTestClient(testServerAddr)
+	cache, err := newTestClient(testServerAddr)
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer cancel()
 	b.ReportAllocs()
 	b.ResetTimer()
 
@@ -44,11 +43,10 @@ func BenchmarkParallel(b *testing.B) {
 }
 
 func BenchmarkGet(b *testing.B) {
-	cache, cancel, err := newTestClient(testServerAddr)
+	cache, err := newTestClient(testServerAddr)
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer cancel()
 	b.ReportAllocs()
 	b.ResetTimer()
 	ctx := context.Background()
@@ -64,11 +62,6 @@ func BenchmarkGet(b *testing.B) {
 }
 
 func BenchmarkOriginalGet(b *testing.B) {
-	cancel, err := newTestServer(testServerAddr)
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer cancel()
 	cache := memcache.New(testServerAddr)
 	b.ReportAllocs()
 	b.ResetTimer()

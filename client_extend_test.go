@@ -11,11 +11,10 @@ import (
 
 func TestMinUses(t *testing.T) {
 	ctx := context.Background()
-	cache, cancel, err := newTestClient(testServerAddr)
+	cache, err := newTestClient(testServerAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cancel()
 
 	var (
 		k = randSeq(6)
@@ -47,11 +46,10 @@ func TestMinUses(t *testing.T) {
 
 func TestScalingExpiration(t *testing.T) {
 	ctx := context.Background()
-	cache, cancel, err := newTestClient(testServerAddr)
+	cache, err := newTestClient(testServerAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cancel()
 
 	var (
 		k = randSeq(6)
@@ -82,11 +80,10 @@ func TestScalingExpiration(t *testing.T) {
 
 func TestNamespace(t *testing.T) {
 	ctx := context.Background()
-	cache, cancel, err := newTestClient(testServerAddr)
+	cache, err := newTestClient(testServerAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cancel()
 
 	ns := randSeq(10)
 	keyVal := make(map[string]string)

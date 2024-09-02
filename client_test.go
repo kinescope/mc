@@ -10,11 +10,10 @@ import (
 )
 
 func TestAddSet(t *testing.T) {
-	cache, cancel, err := newTestClient(testServerAddr)
+	cache, err := newTestClient(testServerAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cancel()
 	var (
 		k = randSeq(16)
 		v = randSeq(24)
@@ -52,11 +51,10 @@ func TestAddSet(t *testing.T) {
 }
 
 func TestCompareAndSwap(t *testing.T) {
-	cache, cancel, err := newTestClient(testServerAddr)
+	cache, err := newTestClient(testServerAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cancel()
 	var (
 		k = randSeq(16)
 		v = randSeq(24)
@@ -96,11 +94,10 @@ func TestCompareAndSwap(t *testing.T) {
 
 func TestIncrDecr(t *testing.T) {
 	ctx := context.Background()
-	cache, cancel, err := newTestClient(testServerAddr)
+	cache, err := newTestClient(testServerAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cancel()
 	{
 		k := randSeq(6)
 		if _, err := cache.Inc(ctx, k, 1); assert.Error(t, err) {
@@ -127,11 +124,10 @@ func TestIncrDecr(t *testing.T) {
 }
 func TestIncrDecrBad(t *testing.T) {
 	ctx := context.Background()
-	cache, cancel, err := newTestClient(testServerAddr)
+	cache, err := newTestClient(testServerAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cancel()
 	{
 		k := randSeq(6)
 		if _, err := cache.Inc(ctx, k, 1); assert.Error(t, err) {
@@ -151,11 +147,10 @@ func TestIncrDecrBad(t *testing.T) {
 }
 func TestIncrDecrWithInitial(t *testing.T) {
 	ctx := context.Background()
-	cache, cancel, err := newTestClient(testServerAddr)
+	cache, err := newTestClient(testServerAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cancel()
 	{
 		k := randSeq(6)
 		for n := range 10 {
@@ -173,11 +168,10 @@ func TestIncrDecrWithInitial(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	ctx := context.Background()
-	cache, cancel, err := newTestClient(testServerAddr)
+	cache, err := newTestClient(testServerAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cancel()
 
 	var (
 		k = randSeq(6)
@@ -203,11 +197,10 @@ func TestDelete(t *testing.T) {
 }
 
 func TestDeadline(t *testing.T) {
-	cache, cancel, err := newTestClient(testServerAddr)
+	cache, err := newTestClient(testServerAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cancel()
 
 	ctx, done := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer done()

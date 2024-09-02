@@ -11,11 +11,10 @@ import (
 )
 
 func TestGetMulti(t *testing.T) {
-	cache, cancel, err := newTestClient(testServerAddr)
+	cache, err := newTestClient(testServerAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cancel()
 	var (
 		ctx    = context.Background()
 		keyVal = make(map[string]string)
@@ -44,11 +43,6 @@ func TestGetMulti(t *testing.T) {
 }
 
 func TestGetMultiXXKeyHash(t *testing.T) {
-	cancel, err := newTestServer(testServerAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cancel()
 	cache, err := mc.New(&mc.Options{
 		Addrs:       []string{testServerAddr},
 		KeyHashFunc: mc.XXKeyHashFunc,
@@ -83,11 +77,10 @@ func TestGetMultiXXKeyHash(t *testing.T) {
 	}
 }
 func TestGetMultiScalingExpiration(t *testing.T) {
-	cache, cancel, err := newTestClient(testServerAddr)
+	cache, err := newTestClient(testServerAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cancel()
 	var (
 		ctx    = context.Background()
 		keyVal = make(map[string]string)
@@ -124,11 +117,10 @@ func TestGetMultiScalingExpiration(t *testing.T) {
 }
 
 func TestGetMultiNamespace(t *testing.T) {
-	cache, cancel, err := newTestClient(testServerAddr)
+	cache, err := newTestClient(testServerAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cancel()
 	var (
 		ns1    = randSeq(5)
 		ns2    = randSeq(5)
