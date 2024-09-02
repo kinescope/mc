@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-const testServerAddr = "127.1.2.1:11211"
-
 func TestAddSet(t *testing.T) {
 	cache, cancel, err := newTestClient(testServerAddr)
 	if err != nil {

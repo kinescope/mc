@@ -1,14 +1,16 @@
 package mc_test
 
 import (
-	"context"
 	"math/rand"
 	"net"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/kinescope/mc"
 )
+
+const testServerAddr = "127.1.2.1:11211"
 
 var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
@@ -49,13 +51,19 @@ func newTestServer(addr string) (cancel func(), err error) {
 	if err != nil {
 		return nil, err
 	}
-	ctx, c := context.WithDeadline(context.Background(), time.Now().Add(time.Second))
-	defer c()
-	cmd := exec.CommandContext(ctx, "memcached", "-m", "2", "-p", port, "-l", host)
+
+	cmd := exec.Command("memcached", "-m", "2", "-p", port, "-l", host)
 	if err := cmd.Start(); err != nil {
+
 		return nil, err
 	}
-	defer cmd.Wait()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		wg.Done()
+		cmd.Wait()
+	}()
+	wg.Wait()
 	for n := range 10 {
 		c, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
 		if err == nil {
@@ -64,5 +72,7 @@ func newTestServer(addr string) (cancel func(), err error) {
 		}
 		time.Sleep(time.Duration(25*n) * time.Millisecond)
 	}
-	return func() { cmd.Process.Kill() }, nil
+	return func() {
+		cmd.Process.Kill()
+	}, nil
 }
