@@ -25,6 +25,8 @@ jobs:
       - name: Start memcached
         run: |
           memcached -d -p 11211
+          memcached -d -p 11212
+          memcached -d -p 11213
 
       - name: Set up Go ${{ matrix.go }}
         uses: actions/setup-go@v4

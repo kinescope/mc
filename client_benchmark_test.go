@@ -10,7 +10,9 @@ import (
 )
 
 func BenchmarkParallel(b *testing.B) {
-	cache, err := newTestClient(testServerAddr)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -43,7 +45,9 @@ func BenchmarkParallel(b *testing.B) {
 }
 
 func BenchmarkGet(b *testing.B) {
-	cache, err := newTestClient(testServerAddr)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -62,7 +66,7 @@ func BenchmarkGet(b *testing.B) {
 }
 
 func BenchmarkOriginalGet(b *testing.B) {
-	cache := memcache.New(testServerAddr)
+	cache := memcache.New(testServerAddrs...)
 	b.ReportAllocs()
 	b.ResetTimer()
 	cache.Set(&memcache.Item{

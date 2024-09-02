@@ -11,7 +11,9 @@ import (
 
 func TestMinUses(t *testing.T) {
 	ctx := context.Background()
-	cache, err := newTestClient(testServerAddr)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +48,9 @@ func TestMinUses(t *testing.T) {
 
 func TestScalingExpiration(t *testing.T) {
 	ctx := context.Background()
-	cache, err := newTestClient(testServerAddr)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +84,9 @@ func TestScalingExpiration(t *testing.T) {
 
 func TestNamespace(t *testing.T) {
 	ctx := context.Background()
-	cache, err := newTestClient(testServerAddr)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,7 +10,9 @@ import (
 )
 
 func TestAddSet(t *testing.T) {
-	cache, err := newTestClient(testServerAddr)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +53,9 @@ func TestAddSet(t *testing.T) {
 }
 
 func TestCompareAndSwap(t *testing.T) {
-	cache, err := newTestClient(testServerAddr)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +98,9 @@ func TestCompareAndSwap(t *testing.T) {
 
 func TestIncrDecr(t *testing.T) {
 	ctx := context.Background()
-	cache, err := newTestClient(testServerAddr)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +130,9 @@ func TestIncrDecr(t *testing.T) {
 }
 func TestIncrDecrBad(t *testing.T) {
 	ctx := context.Background()
-	cache, err := newTestClient(testServerAddr)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +155,9 @@ func TestIncrDecrBad(t *testing.T) {
 }
 func TestIncrDecrWithInitial(t *testing.T) {
 	ctx := context.Background()
-	cache, err := newTestClient(testServerAddr)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +178,9 @@ func TestIncrDecrWithInitial(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	ctx := context.Background()
-	cache, err := newTestClient(testServerAddr)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +209,9 @@ func TestDelete(t *testing.T) {
 }
 
 func TestDeadline(t *testing.T) {
-	cache, err := newTestClient(testServerAddr)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

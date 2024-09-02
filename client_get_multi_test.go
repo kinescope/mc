@@ -11,7 +11,9 @@ import (
 )
 
 func TestGetMulti(t *testing.T) {
-	cache, err := newTestClient(testServerAddr)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +46,7 @@ func TestGetMulti(t *testing.T) {
 
 func TestGetMultiXXKeyHash(t *testing.T) {
 	cache, err := mc.New(&mc.Options{
-		Addrs:       []string{testServerAddr},
+		Addrs:       testServerAddrs,
 		KeyHashFunc: mc.XXKeyHashFunc,
 	})
 	if err != nil {
@@ -77,7 +79,9 @@ func TestGetMultiXXKeyHash(t *testing.T) {
 	}
 }
 func TestGetMultiScalingExpiration(t *testing.T) {
-	cache, err := newTestClient(testServerAddr)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +121,9 @@ func TestGetMultiScalingExpiration(t *testing.T) {
 }
 
 func TestGetMultiNamespace(t *testing.T) {
-	cache, err := newTestClient(testServerAddr)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
