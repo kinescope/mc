@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package cache;
+
+option go_package = "github.com/kinescope/mc/proto/cache";
+
+message Namespace {
+    string Key = 1;
+    uint64 Ver = 2;
+}
+
+message Expiration {
+    int64  Until = 1;
+    uint32 Scale = 2;
+}
+
+message Item {
+    bytes      Data       = 1;
+    Namespace  Namespace  = 2;
+    Expiration Expiration = 3;
+}
