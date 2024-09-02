@@ -176,8 +176,8 @@ func (c *Client) populateOne(ctx context.Context, opcode protocol.Opcode, i *Ite
 			key        = i.Key + ":muc"
 			expiration = opt.expiration
 		)
-		if expiration == 0 || expiration > 180 {
-			expiration = 60
+		if expiration == 0 || expiration > 1_800 {
+			expiration = 1_800
 		}
 		switch uses, err := c.incrDecr(ctx, protocol.Increment, key, 1, 1, expiration); {
 		case err != nil:
