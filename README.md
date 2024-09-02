@@ -1,5 +1,10 @@
 # Memcache Client
 
+[![CI](https://github.com/kinescope/mc/workflows/run-tests/badge.svg)]()
+[![Go Report Card](https://goreportcard.com/badge/github.com/kinescope/mc)](https://goreportcard.com/report/github.com/kinescope/mc)
+[![godoc](https://img.shields.io/badge/docs-GoDoc-green.svg)](https://godoc.org/github.com/kinescope/mc)
+
+
 ```go
 package main
 
