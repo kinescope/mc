@@ -105,7 +105,7 @@ For more info on namespaces see [memcache wiki](https://github.com/memcached/mem
 
 ## Contributing
 
-For contributing see [`CONTRIBUTING.md`](https://github.com/kinescope/mc/CONTRIBUTING.md)
+For contributing see [`CONTRIBUTING.md`](https://github.com/kinescope/mc/blob/main/CONTRIBUTING.md)
 
 ## Licensing
 The code in this project is licensed under MIT license.
