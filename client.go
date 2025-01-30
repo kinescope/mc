@@ -1,232 +1,277 @@
 package mc
 
+// https://docs.memcached.org/protocols/meta/
 import (
-	"context"
-	"encoding/binary"
-	"errors"
+	"bytes"
 	"fmt"
-
-	"github.com/kinescope/mc/internal/clock"
-	"github.com/kinescope/mc/proto/cache"
-	"github.com/kinescope/mc/protocol"
-	"google.golang.org/protobuf/proto"
+	"io"
+	"strconv"
+	"strings"
 )
 
-const MagicValue = 0x42
+var crlf = []byte("\r\n")
 
-var endian = binary.BigEndian
-
-func New(o *Options) (_ *Client, err error) {
-	o.setDefaults()
-	if len(o.Addrs) == 0 {
+func New(opts *Options) (*Client, error) {
+	opts.setDefaults()
+	if len(opts.Addrs) == 0 {
 		return nil, ErrNoServers
 	}
 	var (
 		cli = &Client{
-			opts: o,
+			opts: opts,
 			pool: pool{
 				idle:            make(map[string]chan *conn),
-				dialTimeout:     o.DialTimeout,
-				connMaxLifetime: o.ConnMaxLifetime,
+				dialTimeout:     opts.DialTimeout,
+				connMaxLifetime: opts.ConnMaxLifetime,
 			},
+			encodeKey: binaryEncodeKey,
 		}
 	)
-	for _, s := range o.Addrs {
-		cli.pool.idle[s] = make(chan *conn, o.MaxIdleConnsPerAddr)
+	if opts.DisableBinaryEncodedKeys {
+		cli.encodeKey = func(s string) (string, error) {
+			if !checkKey(s) {
+				return "", ErrMalformedKey
+			}
+			return s, nil
+		}
+	}
+	for _, s := range opts.Addrs {
+		cli.pool.idle[s] = make(chan *conn, opts.MaxIdleConnsPerAddr)
 	}
 	return cli, nil
 }
 
 type Client struct {
-	pool pool
-	opts *Options
+	pool      pool
+	opts      *Options
+	encodeKey func(string) (string, error)
 }
 
-func (c *Client) Get(ctx context.Context, key string) (*Item, error) {
-	data, extra, cas, err := c.request(ctx, protocol.Get, key, nil, nil, 0)
+func (c *Client) Get(k string, o ...MgOption) (_ *Item, retErr error) {
+	key, err := c.encodeKey(k)
 	if err != nil {
 		return nil, err
 	}
 
-	var (
-		flags uint16
-		value = data
-	)
+	//fmt.Println(k)
+	conn, err := c.pickServer(key)
+	if err != nil {
+		return nil, err
+	}
 
-	if len(extra) >= 4 {
-		flags = endian.Uint16(extra[2:])
-		if extra[0] == MagicValue {
+	defer func() {
+		c.pool.condRelease(conn, retErr)
+	}()
 
-			var item cache.Item
-			if err := proto.Unmarshal(data, &item); err != nil {
-				return nil, err
-			}
+	cmd := "mg " + key + " f t c l v b\r\n"
 
-			if item.Expiration != nil && item.Expiration.Until < clock.Unix() {
-				err := c.Add(ctx, &Item{
-					Key: key + ":es",
-				}, WithExpiration(item.Expiration.Scale, 0))
-				switch err {
-				case nil:
-					return nil, ErrCacheMiss
-				case ErrAlreadyExists:
-				default:
-					return nil, err
-				}
-			}
+	conn.buff.Write([]byte(cmd))
 
-			if item.Namespace != nil {
-				v, err := c.nsVersion(ctx, item.Namespace.Key, 0)
+	conn.buff.Flush()
+
+	line, err := conn.buff.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+
+	switch line = strings.TrimSpace(line); {
+	case line == "EN": //not found
+		return nil, ErrCacheMiss
+	case strings.HasPrefix(line, "VA "):
+		fields := strings.Fields(strings.TrimPrefix(line, "VA "))
+		ln, err := strconv.Atoi(fields[0])
+		if err != nil {
+			return nil, err
+		}
+
+		item := Item{
+			Key:   k,
+			Value: make(Value, ln+2),
+		}
+
+		for _, v := range fields[1:] {
+			switch v[0] {
+			case 'f': // flags
+			case 'c': // cas
+				item.cas, err = strconv.ParseUint(v[1:], 10, 0)
+			case 't':
+				/*ttl, err := strconv.ParseUint(v[1:], 10, 32)
 				if err != nil {
 					return nil, err
 				}
-				if v != item.Namespace.Ver {
-					c.Delete(ctx, key)
-					return nil, ErrCacheMiss
-				}
+				fmt.Println("TTL", ttl)*/
 			}
-
-			value = item.Data
+			if err != nil {
+				return nil, err
+			}
+			//fmt.Println("VVV", v)
 		}
-	}
 
-	return &Item{
-		Key:   key,
-		Value: value,
-		Flags: flags,
-		cas:   cas,
-	}, nil
-}
-
-func (c *Client) Set(ctx context.Context, i *Item, o ...Option) error {
-	return c.populateOne(ctx, protocol.Set, i, 0, o...)
-}
-func (c *Client) Add(ctx context.Context, i *Item, o ...Option) error {
-	return c.populateOne(ctx, protocol.Add, i, 0, o...)
-}
-
-func (c *Client) CompareAndSwap(ctx context.Context, i *Item, o ...Option) error {
-	if err := c.populateOne(ctx, protocol.Set, i, i.cas, o...); err != nil {
-		if errors.Is(err, ErrAlreadyExists) {
-			return ErrCASConflict
+		if _, err := io.ReadFull(conn.buff, item.Value); err != nil {
+			return nil, err
 		}
-		return err
+		if !bytes.HasSuffix(item.Value, crlf) {
+			return nil, ErrCorruptGetResultRead
+		}
+		item.Value = item.Value[:ln]
+		return &item, nil
 	}
-	return nil
+	//fmt.Println(line)
+	return &Item{}, nil
 }
 
-func (c *Client) Inc(ctx context.Context, key string, delta uint64, o ...Option) (uint64, error) {
-	var opt opts
+func (c *Client) Add(i *Item, o ...MsOption) error {
+	return c.populateOne("E", i, 0, o...)
+}
+
+func (c *Client) Set(i *Item, o ...MsOption) error {
+	return c.populateOne("S", i, 0, o...)
+}
+
+func (c *Client) CompareAndSwap(i *Item, o ...MsOption) error {
+	return c.populateOne("S", i, i.cas, o...)
+}
+
+/*
+
+- b: interpret key as base64 encoded binary value (see metaget)
+- c: return CAS value if successfully stored.
+- C(token): compare CAS value when storing item
+- E(token): use token as new CAS value (see metaget for detail)
+- F(token): set client flags to token (32 bit unsigned numeric)
+- I: invalidate. set-to-invalid if supplied CAS is older than item's CAS
+- k: return key as a token
+- O(token): opaque value, consumes a token and copies back with response
+- q: use noreply semantics for return codes
+- s: return the size of the stored item on success (ie; new size on append)
+- T(token): Time-To-Live for item, see "Expiration" above.
+- M(token): mode switch to change behavior to add, replace, append, prepend
+- N(token): if in append mode, autovivify on miss with supplied TTL
+
+E: "add" command. LRU bump and return NS if item exists. Else
+add.
+A: "append" command. If item exists, append the new value to its data.
+P: "prepend" command. If item exists, prepend the new value to its data.
+R: "replace" command. Set only if item already exists.
+S: "set" command. The default mode, added for completeness.
+*/
+
+// https://github.com/memcached/memcached/blob/master/doc/protocol.txt#L685
+func (c *Client) populateOne(mode string, i *Item, cas uint64, o ...MsOption) (err error) {
+	var opts msOpts
+
 	for _, fn := range o {
-		fn(&opt)
+		fn(&opts)
 	}
-	return c.incrDecr(ctx, protocol.Increment, key, delta, opt.initial, opt.expiration)
-}
 
-func (c *Client) Dec(ctx context.Context, key string, delta uint64) (uint64, error) {
-	return c.incrDecr(ctx, protocol.Decrement, key, delta, 0, 0)
-}
-
-func (c *Client) Delete(ctx context.Context, key string) error {
-	if _, _, _, err := c.request(ctx, protocol.Delete, key, nil, nil, 0); err != nil {
-		return err
-	}
-	return nil
-}
-
-// https://github.com/memcached/memcached/wiki/ProgrammingTricks#namespacing
-func (c *Client) PurgeNamespace(ctx context.Context, ns string) error {
-	ns = fmt.Sprintf("%x", XXKeyHashFunc(ns))
-	if _, err := c.nsVersion(ctx, ns, 1); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (c *Client) incrDecr(ctx context.Context, opcode protocol.Opcode, key string, delta, initial uint64, expiration uint32) (uint64, error) {
-	extras := make([]byte, 20)
-	switch {
-	case initial > 0:
-		endian.PutUint64(extras[8:16], initial)
-		endian.PutUint32(extras[16:20], expiration)
-	default:
-		copy(extras[16:], []byte{
-			0xff,
-			0xff,
-			0xff,
-			0xff,
-		})
-	}
-	endian.PutUint64(extras, delta)
-
-	data, _, _, err := c.request(ctx, opcode, key, nil, extras, 0)
-	if err != nil {
-		return 0, err
-	}
-	return endian.Uint64(data), nil
-}
-
-func (c *Client) populateOne(ctx context.Context, opcode protocol.Opcode, i *Item, cas uint64, o ...Option) (err error) {
-	var opt opts
-	for _, fn := range o {
-		fn(&opt)
-	}
-	if opt.minUses > 0 {
-		var (
-			key        = i.Key + ":muc"
-			expiration = opt.expiration
-		)
-		if expiration == 0 || expiration > 1_800 {
-			expiration = 1_800
-		}
-		switch uses, err := c.incrDecr(ctx, protocol.Increment, key, 1, 1, expiration); {
-		case err != nil:
-			return err
-		case uses < uint64(opt.minUses):
+	if opts.minUses != 0 {
+		if v, _ := c.Inc(i.Key+"::_min_uses", 1, opts.expiration, WithInitialValue(1)); v < opts.minUses {
 			return nil
 		}
 	}
-	scaled := opt.expiration + opt.scalingExpiration
-	extras := make([]byte, 8)
-	endian.PutUint16(extras[2:4], i.Flags) //uint16 flags
-	if opt.expiration != 0 {
-		endian.PutUint32(extras[4:8], uint32(scaled))
-	}
-	value := i.Value
 
-	if (opt.expiration != 0 && opt.scalingExpiration != 0) || len(opt.namespace) != 0 {
-		extras[0] = MagicValue
-		item := &cache.Item{
-			Data: i.Value,
-		}
-		if opt.scalingExpiration != 0 {
-			item.Expiration = &cache.Expiration{
-				Scale: opt.scalingExpiration,
-				Until: clock.Unix() + int64(opt.expiration),
-			}
-		}
-		if len(opt.namespace) != 0 {
-			ns := fmt.Sprintf("%x", XXKeyHashFunc(opt.namespace))
-			ver, err := c.nsVersion(ctx, ns, 0)
-			if err != nil {
-				return err
-			}
-			item.Namespace = &cache.Namespace{
-				Key: ns,
-				Ver: ver,
-			}
-		}
-		if value, err = proto.Marshal(item); err != nil {
-			return err
-		}
+	key, err := c.encodeKey(i.Key)
+	if err != nil {
+		return err
+	}
+	conn, err := c.pickServer(key)
+	if err != nil {
+		return err
+	}
+	//fmt.Println(i.Key)
+	cmd := fmt.Sprintf("ms %s %d M%s T%d F%d b", key, len(i.Value), mode, 30, i.Flags)
+
+	if cas != 0 {
+		cmd += fmt.Sprintf(" C%d", cas)
 	}
 
-	if _, _, i.cas, err = c.request(ctx, opcode, i.Key, value, extras, cas); err != nil {
+	//	fmt.Println(cmd)
+
+	conn.buff.Write([]byte(cmd))
+	conn.buff.Write(crlf)
+
+	conn.buff.Write(i.Value)
+
+	conn.buff.Write(crlf)
+
+	conn.buff.Flush()
+
+	if _, err := parseResponse(conn.buff.Reader); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (c *Client) nsVersion(ctx context.Context, ns string, delta uint64) (uint64, error) {
-	return c.Inc(ctx, ns+":ns", delta, WithInitial(uint64(clock.Unix())))
+func (c *Client) Del(k string, o ...MdOption) error {
+	var opts mdOpts
+	for _, fn := range o {
+		fn(&opts)
+	}
+	key, err := c.encodeKey(k)
+	if err != nil {
+		return err
+	}
+	cmd := []byte("md " + key)
+	if !c.opts.DisableBinaryEncodedKeys {
+		cmd = append(cmd, []byte(" b")...)
+	}
+	conn, err := c.pickServer(key)
+	if err != nil {
+		return err
+	}
+
+	conn.buff.Write(cmd)
+	conn.buff.Write(crlf)
+
+	if err := conn.buff.Flush(); err != nil {
+		return err
+	}
+	line, err := conn.buff.ReadString('\n')
+	if err != nil {
+		return err
+	}
+
+	switch line = strings.TrimSpace(line); line {
+	case "HD": // ok
+	case "NS":
+		return ErrNotStored
+	case "NF":
+		return ErrCacheMiss
+	case "EX":
+		return ErrCASConflict
+	case "ERROR":
+		return ErrNonexistentCommandName
+	default:
+		switch {
+		case strings.HasPrefix(line, "CLIENT_ERROR "):
+			return &ClientError{
+				Message: strings.TrimPrefix(line, "CLIENT_ERROR "),
+			}
+		case strings.HasPrefix(line, "SERVER_ERROR "):
+			return &ClientError{
+				Message: strings.TrimPrefix(line, "SERVER_ERROR "),
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *Client) Inc(k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, _ error) {
+	return c.arithmetic("M+", k, delta, expiration, o...)
+}
+func (c *Client) Dec(k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, _ error) {
+	return c.arithmetic("M-", k, delta, expiration, o...)
+}
+
+func checkKey(key string) bool {
+	if len(key) > 250 {
+		return false
+	}
+	for i := 0; i < len(key); i++ {
+		if key[i] <= ' ' || key[i] > 0x7e {
+			return false
+		}
+	}
+	return true
 }

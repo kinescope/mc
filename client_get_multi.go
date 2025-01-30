@@ -1,102 +1,101 @@
 package mc
 
 import (
-	"context"
-	"time"
-
-	"github.com/kinescope/mc/internal/clock"
-	"github.com/kinescope/mc/proto/cache"
-	"github.com/kinescope/mc/protocol"
-	"google.golang.org/protobuf/proto"
+	"bytes"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
 )
 
-func (c *Client) GetMulti(ctx context.Context, keys ...string) (_ map[string]*Item, retErr error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
+func (c *Client) GetMulti(keys ...string) (_ map[string]*Item, retErr error) {
+	keyNum := make(map[string]int)
 	keyMap := make(map[string][]string)
-	for _, key := range keys {
-		if !checkKey(key) {
-			return nil, ErrMalformedKey
+	for n, k := range keys {
+		key, err := c.encodeKey(k)
+		if err != nil {
+			return nil, err
 		}
 		addrs := c.opts.PickServer(key)
 		if len(addrs) == 0 {
 			return nil, ErrNoServers
 		}
+		keyNum[key] = n
 		keyMap[addrs[0]] = append(keyMap[addrs[0]], key)
 	}
 
 	var chs []chan *Item
 
-	for addr, keys := range keyMap {
+	for addr, items := range keyMap {
 		ch := make(chan *Item)
 		chs = append(chs, ch)
-		go func(addr string, keys []string, ch chan *Item) {
+		go func(addr string, items []string, ch chan *Item) (retErr error) {
 			defer close(ch)
 			conn, err := c.pool.getConn(addr)
 			if err != nil {
-				return
+				return nil
 			}
-			defer c.pool.condRelease(conn, err)
-			if deadline, ok := ctx.Deadline(); ok {
-				conn.nc.SetDeadline(deadline)
-				defer conn.nc.SetDeadline(time.Time{})
+			defer c.pool.condRelease(conn, retErr)
+
+			for _, key := range items {
+				cmd := fmt.Sprintf("mg "+key+" O%d f t c l v b\r\n", keyNum[key])
+				conn.buff.WriteString(cmd)
 			}
 
-			names := make(map[string]string, len(keys))
-			for _, k := range keys {
-				h := c.opts.KeyHashFunc(k)
-				names[string(h)] = k
-				err = conn.sendPacket(protocol.GetKQ, h, nil, nil, 0)
+			conn.buff.WriteString("mn\r\n")
+			conn.buff.Flush()
+
+			for range len(items) + 1 {
+				line, err := conn.buff.ReadString('\n')
 				if err != nil {
-					return
+					return err
 				}
-			}
-			if err = conn.sendPacket(protocol.Noop, nil, nil, nil, 0); err != nil {
-				return
-			}
-			var packet *protocol.Packet
-			for {
-				packet, err = conn.readPacket()
-				if err != nil || len(packet.Key) == 0 {
-					break
-				}
-				var (
-					flags uint16
-					value = packet.Data
-				)
-
-				if len(packet.Extras) >= 4 {
-					flags = endian.Uint16(packet.Extras[2:])
-					if packet.Extras[0] == MagicValue {
-						var item cache.Item
-						if err := proto.Unmarshal(packet.Data, &item); err != nil {
-							continue
-						}
-						if item.Expiration != nil && item.Expiration.Until < clock.Unix() {
-							continue
-						}
-						if item.Namespace != nil {
-							if v, err := c.nsVersion(ctx, item.Namespace.Key, 0); err == nil {
-								if v != item.Namespace.Ver {
-									c.Delete(ctx, names[string(packet.Key)])
-									continue
-								}
-							}
-						}
-						value = item.Data
+				switch line = strings.TrimSpace(line); {
+				case line == "MN":
+					return nil
+				case strings.HasPrefix(line, "VA "):
+					fields := strings.Fields(strings.TrimPrefix(line, "VA "))
+					ln, err := strconv.Atoi(fields[0])
+					if err != nil {
+						return err
 					}
+
+					item := Item{
+						Value: make(Value, ln+2),
+					}
+
+					for _, v := range fields[1:] {
+						switch v[0] {
+						case 'f': // flags
+						case 'c': // cas
+							item.cas, err = strconv.ParseUint(v[1:], 10, 0)
+						case 't':
+						case 'O':
+							num, _ := strconv.ParseUint(v[1:], 10, 0)
+							item.Key = keys[num]
+						}
+						if err != nil {
+							return err
+						}
+						//fmt.Println("VVV", v)
+					}
+
+					if _, err := io.ReadFull(conn.buff, item.Value); err != nil {
+						return
+					}
+					if !bytes.HasSuffix(item.Value, crlf) {
+						return
+					}
+					item.Value = item.Value[:ln]
+
+					ch <- &item
 				}
-				ch <- &Item{
-					Key:   names[string(packet.Key)],
-					Value: value,
-					Flags: flags,
-					cas:   packet.CAS,
-				}
+
 			}
-		}(addr, keys, ch)
+
+			return nil
+
+		}(addr, items, ch)
 	}
 	items := make(map[string]*Item)
 	for _, ch := range chs {
@@ -105,4 +104,5 @@ func (c *Client) GetMulti(ctx context.Context, keys ...string) (_ map[string]*It
 		}
 	}
 	return items, nil
+
 }

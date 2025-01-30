@@ -1,16 +1,13 @@
 package mc_test
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"github.com/kinescope/mc"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestMinUses(t *testing.T) {
-	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
 	})
@@ -23,15 +20,15 @@ func TestMinUses(t *testing.T) {
 		v = randSeq(6)
 	)
 
-	err = cache.Set(ctx, &mc.Item{
+	err = cache.Set(&mc.Item{
 		Key:   k,
 		Value: []byte(v),
 	}, mc.WithMinUses(5))
 
 	if assert.NoError(t, err) {
-		if _, err := cache.Get(ctx, k); assert.Equal(t, mc.ErrCacheMiss, err) {
+		if _, err := cache.Get(k); assert.Equal(t, mc.ErrCacheMiss, err) {
 			for range 4 {
-				err = cache.Set(ctx, &mc.Item{
+				err = cache.Set(&mc.Item{
 					Key:   k,
 					Value: []byte(v),
 				}, mc.WithMinUses(5))
@@ -39,13 +36,14 @@ func TestMinUses(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
+			if i, err := cache.Get(k); assert.NoError(t, err) {
 				assert.Equal(t, v, string(i.Value))
 			}
 		}
 	}
 }
 
+/*
 func TestScalingExpiration(t *testing.T) {
 	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
@@ -143,3 +141,4 @@ func TestNamespace(t *testing.T) {
 		assert.Equal(t, v, string(i.Value))
 	}
 }
+*/

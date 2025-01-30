@@ -1,13 +1,26 @@
 package mc_test
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"github.com/kinescope/mc"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestBase(t *testing.T) {
+	k := randSeq(16)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache.Set(&mc.Item{
+		Key:   k,
+		Value: []byte(randSeq(16)),
+	}, mc.WithCompression(1_000))
+	t.Log(cache.Get(k))
+}
 
 func TestAddSet(t *testing.T) {
 	cache, err := mc.New(&mc.Options{
@@ -21,31 +34,35 @@ func TestAddSet(t *testing.T) {
 		v = randSeq(24)
 	)
 
-	ctx := context.Background()
-
-	err = cache.Add(ctx, &mc.Item{
+	err = cache.Add(&mc.Item{
 		Key:   k,
 		Value: []byte(v),
 	})
 
 	if assert.NoError(t, err) {
-		if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
+		if i, err := cache.Get(k); assert.NoError(t, err) {
 			if assert.Equal(t, v, string(i.Value)) {
-				err = cache.Add(ctx, &mc.Item{
+				err = cache.Add(&mc.Item{
 					Key: k,
 				})
 				if assert.Error(t, err) {
-					assert.Equal(t, mc.ErrAlreadyExists, err)
+					assert.Equal(t, mc.ErrNotStored, err)
 				}
 				v = randSeq(24)
-				err = cache.Set(ctx, &mc.Item{
+				err = cache.Set(&mc.Item{
 					Key:   k,
 					Value: []byte(v),
 				})
 				if assert.NoError(t, err) {
-					if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
+					if i, err := cache.Get(k); assert.NoError(t, err) {
 						assert.Equal(t, v, string(i.Value))
 					}
+				}
+				err = cache.Add(&mc.Item{
+					Key: k,
+				})
+				if assert.Error(t, err) {
+					assert.Equal(t, mc.ErrNotStored, err)
 				}
 			}
 		}
@@ -64,27 +81,25 @@ func TestCompareAndSwap(t *testing.T) {
 		v = randSeq(24)
 	)
 
-	ctx := context.Background()
-
-	err = cache.Add(ctx, &mc.Item{
+	err = cache.Add(&mc.Item{
 		Key:   k,
 		Value: []byte(v),
 	})
 
 	if assert.NoError(t, err) {
-		if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
+		if i, err := cache.Get(k); assert.NoError(t, err) {
 			if assert.Equal(t, v, string(i.Value)) {
 				v = randSeq(24)
 				i.Value = []byte(v)
-				if err = cache.CompareAndSwap(ctx, i); assert.NoError(t, err) {
-					if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
+				if err = cache.CompareAndSwap(i); assert.NoError(t, err) {
+					if i, err := cache.Get(k); assert.NoError(t, err) {
 						if assert.Equal(t, v, string(i.Value)) {
-							err = cache.Set(ctx, &mc.Item{
+							err = cache.Set(&mc.Item{
 								Key:   k,
 								Value: []byte(v),
 							})
 							if assert.NoError(t, err) {
-								if err = cache.CompareAndSwap(ctx, i); assert.Error(t, err) {
+								if err = cache.CompareAndSwap(i); assert.Error(t, err) {
 									assert.Equal(t, mc.ErrCASConflict, err)
 								}
 							}
@@ -97,7 +112,6 @@ func TestCompareAndSwap(t *testing.T) {
 }
 
 func TestIncrDecr(t *testing.T) {
-	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
 	})
@@ -106,20 +120,20 @@ func TestIncrDecr(t *testing.T) {
 	}
 	{
 		k := randSeq(6)
-		if _, err := cache.Inc(ctx, k, 1); assert.Error(t, err) {
+		if _, err := cache.Inc(k, 1, 10); assert.Error(t, err) {
 			if assert.Equal(t, mc.ErrCacheMiss, err) {
-				err = cache.Set(ctx, &mc.Item{
+				err = cache.Set(&mc.Item{
 					Key:   k,
 					Value: []byte("0"),
 				})
 				if assert.NoError(t, err) {
 					for n := range 10 {
-						if v, err := cache.Inc(ctx, k, 1); assert.NoError(t, err) {
+						if v, err := cache.Inc(k, 1, 10); assert.NoError(t, err) {
 							assert.Equal(t, uint64(n+1), v)
 						}
 					}
 					for n := range 10 {
-						if v, err := cache.Dec(ctx, k, 1); assert.NoError(t, err) {
+						if v, err := cache.Dec(k, 1, 10); assert.NoError(t, err) {
 							assert.Equal(t, uint64(9-n), v)
 						}
 					}
@@ -129,7 +143,6 @@ func TestIncrDecr(t *testing.T) {
 	}
 }
 func TestIncrDecrBad(t *testing.T) {
-	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
 	})
@@ -138,14 +151,14 @@ func TestIncrDecrBad(t *testing.T) {
 	}
 	{
 		k := randSeq(6)
-		if _, err := cache.Inc(ctx, k, 1); assert.Error(t, err) {
+		if _, err := cache.Inc(k, 1, 10); assert.Error(t, err) {
 			if assert.Equal(t, mc.ErrCacheMiss, err) {
-				err = cache.Set(ctx, &mc.Item{
+				err = cache.Set(&mc.Item{
 					Key:   k,
 					Value: []byte("non-numeric"),
 				})
 				if assert.NoError(t, err) {
-					if _, err := cache.Inc(ctx, k, 1); assert.Error(t, err) {
+					if _, err := cache.Inc(k, 1, 10); assert.Error(t, err) {
 						assert.Equal(t, mc.ErrBadIncrDec, err)
 					}
 				}
@@ -154,7 +167,6 @@ func TestIncrDecrBad(t *testing.T) {
 	}
 }
 func TestIncrDecrWithInitial(t *testing.T) {
-	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
 	})
@@ -164,12 +176,12 @@ func TestIncrDecrWithInitial(t *testing.T) {
 	{
 		k := randSeq(6)
 		for n := range 10 {
-			if v, err := cache.Inc(ctx, k, 1, mc.WithInitial(1)); assert.NoError(t, err) {
+			if v, err := cache.Inc(k, 1, 10, mc.WithInitialValue(1)); assert.NoError(t, err) {
 				assert.Equal(t, uint64(n+1), v)
 			}
 		}
 		for n := range 10 {
-			if v, err := cache.Dec(ctx, k, 1); assert.NoError(t, err) {
+			if v, err := cache.Dec(k, 1, 10); assert.NoError(t, err) {
 				assert.Equal(t, uint64(9-n), v)
 			}
 		}
@@ -177,7 +189,7 @@ func TestIncrDecrWithInitial(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
-	ctx := context.Background()
+
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
 	})
@@ -190,16 +202,16 @@ func TestDelete(t *testing.T) {
 		v = randSeq(6)
 	)
 
-	err = cache.Set(ctx, &mc.Item{
+	err = cache.Set(&mc.Item{
 		Key:   k,
 		Value: []byte(v),
 	})
 
 	if assert.NoError(t, err) {
-		if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
+		if i, err := cache.Get(k); assert.NoError(t, err) {
 			if assert.Equal(t, v, string(i.Value)) {
-				if err := cache.Delete(ctx, k); assert.NoError(t, err) {
-					if _, err := cache.Get(ctx, k); assert.Error(t, err) {
+				if err := cache.Del(k); assert.NoError(t, err) {
+					if _, err := cache.Get(k); assert.Error(t, err) {
 						assert.Equal(t, mc.ErrCacheMiss, err)
 					}
 				}
@@ -208,6 +220,7 @@ func TestDelete(t *testing.T) {
 	}
 }
 
+/*
 func TestDeadline(t *testing.T) {
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
@@ -227,3 +240,4 @@ func TestDeadline(t *testing.T) {
 		}
 	}
 }
+*/

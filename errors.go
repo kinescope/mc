@@ -2,45 +2,33 @@ package mc
 
 import (
 	"errors"
-	"fmt"
-
-	"github.com/kinescope/mc/protocol"
 )
 
 var (
-	ErrCacheMiss        = errors.New("memcache: cache miss")
-	ErrNotStored        = errors.New("memcache: item not stored")
-	ErrNoServers        = errors.New("memcache: no servers configured or available")
-	ErrBadIncrDec       = errors.New("memcache: incr or decr on non-numeric value")
-	ErrCASConflict      = errors.New("memcache: compare-and-swap conflict")
-	ErrServerError      = errors.New("memcache: server error")
-	ErrMalformedKey     = errors.New("memcache: key is too long or contains invalid characters")
-	ErrAlreadyExists    = errors.New("memcache: item already exists")
-	ErrValueTooLarge    = errors.New("memcache: value too large")
-	ErrInvalidArguments = errors.New("memcache: invalid arguments")
+	ErrCacheMiss                = errors.New("memcache: cache miss")
+	ErrNotStored                = errors.New("memcache: item not stored")
+	ErrCASConflict              = errors.New("memcache: compare-and-swap conflict")
+	ErrMalformedKey             = errors.New("memcache: key is too long or contains invalid characters")
+	ErrNoServers                = errors.New("memcache: no servers configured or available")
+	ErrNonexistentCommandName   = errors.New("memcache: nonexistent command name")
+	ErrUnsupportedServerVersion = errors.New("memcache: unsupported server version ( < 1.6.14 )")
+	ErrBadIncrDec               = errors.New("memcache: cannot increment or decrement non-numeric value")
+	ErrCorruptGetResultRead     = errors.New("memcache: corrupt get result read")
+	//ErrServerError              = errors.New("memcache: server error")
+	//ErrAlreadyExists = errors.New("memcache: item already exists")
+	//ErrValueTooLarge            = errors.New("memcache: value too large")
+	//ErrInvalidArguments         = errors.New("memcache: invalid arguments")
+
 )
 
-func checkError(err error) error {
-	switch e := err.(type) {
-	case protocol.Status:
-		switch e {
-		case protocol.StatusKeyExists:
-			return ErrAlreadyExists
-		case protocol.StatusKeyNotFound:
-			return ErrCacheMiss
-		case protocol.StatusItemNotStored:
-			return ErrNotStored
-		case protocol.StatusInternalError:
-			return ErrServerError
-		case protocol.StatusInvalidArguments:
-			return ErrInvalidArguments
-		case protocol.StatusIncrDecrOnNonNumericValue:
-			return ErrBadIncrDec
-		case protocol.StatusValueTooLarge:
-			return ErrValueTooLarge
-		default:
-			return fmt.Errorf("memcache: status=%d", e)
-		}
+type (
+	ClientError struct {
+		Message string
 	}
-	return err
-}
+	ServerError struct {
+		Message string
+	}
+)
+
+func (c *ClientError) Error() string { return "memcache [client]: " + c.Message }
+func (s *ServerError) Error() string { return "memcache [server]: " + s.Message }

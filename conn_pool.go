@@ -9,8 +9,12 @@ func (c *Client) pickServer(key string) (conn *conn, err error) {
 	if len(addrs) == 0 {
 		return nil, ErrNoServers
 	}
+	name := addrs[0]
 	for _, addr := range addrs {
 		if conn, err = c.pool.getConn(addr); err == nil {
+			if conn.name != name {
+				conn.name = name
+			}
 			return
 		}
 	}
@@ -36,21 +40,18 @@ func (p *pool) getConn(addr string) (conn *conn, err error) {
 }
 
 func (p *pool) condRelease(conn *conn, err error) {
-	conn.packet.Reset()
 	if time.Since(conn.connectedAt) >= p.connMaxLifetime {
 		conn.close()
 		return
 	}
-
 	switch err {
-	case nil, ErrCacheMiss, ErrNotStored, ErrBadIncrDec, ErrCASConflict:
+	case nil, ErrCacheMiss, ErrNotStored, ErrCASConflict, ErrMalformedKey:
 	default:
 		conn.close()
 		return
 	}
-
 	select {
-	case p.idle[conn.addr] <- conn:
+	case p.idle[conn.name] <- conn:
 	default:
 		conn.close()
 	}
