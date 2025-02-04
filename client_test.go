@@ -2,6 +2,7 @@ package mc_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/kinescope/mc"
 	"github.com/stretchr/testify/assert"
@@ -220,7 +221,6 @@ func TestDelete(t *testing.T) {
 	}
 }
 
-/*
 func TestDeadline(t *testing.T) {
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
@@ -229,10 +229,7 @@ func TestDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, done := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
-	defer done()
-
-	if _, err = cache.Get(ctx, randSeq(6)); assert.Error(t, err) {
+	if _, err = cache.Get(randSeq(6), mc.WithDeadline(time.Now().Add(-time.Second))); assert.Error(t, err) {
 		if e, ok := err.(interface {
 			Timeout() bool
 		}); assert.True(t, ok) {
@@ -240,4 +237,3 @@ func TestDeadline(t *testing.T) {
 		}
 	}
 }
-*/

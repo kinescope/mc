@@ -33,16 +33,8 @@ These extra flags can be added to the response:
 - X: item is stale
 - Z: item has already sent a winning flag
 */
-func (c *Client) makeGetCmd(key string, o ...MgOption) []byte {
-
-	// cmd := fmt.Sprintf("mg "+key+" O%d f t c l v b\r\n", keyNum[key])
-	var (
-		opt mgOpts
-		cmd = []byte("mg " + key + " v f")
-	)
-	for _, fn := range o {
-		fn(&opt)
-	}
+func (c *Client) makeGetCmd(key string, opt mgOpts) []byte {
+	cmd := []byte("mg " + key + " v f")
 	if opt.cas {
 		cmd = append(cmd, ' ', 'c')
 	}

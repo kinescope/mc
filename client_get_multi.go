@@ -2,6 +2,7 @@ package mc
 
 import (
 	"errors"
+	"time"
 )
 
 func (c *Client) GetMulti(keys []string, o ...MgOption) (_ map[string]*Item, retErr error) {
@@ -20,8 +21,13 @@ func (c *Client) GetMulti(keys []string, o ...MgOption) (_ map[string]*Item, ret
 		keyMap[addrs[0]] = append(keyMap[addrs[0]], key)
 	}
 
-	var chs []chan *Item
-
+	var (
+		opt mgOpts
+		chs []chan *Item
+	)
+	for _, fn := range o {
+		fn(&opt)
+	}
 	for addr, items := range keyMap {
 		ch := make(chan *Item)
 		chs = append(chs, ch)
@@ -31,13 +37,19 @@ func (c *Client) GetMulti(keys []string, o ...MgOption) (_ map[string]*Item, ret
 			if err != nil {
 				return nil
 			}
-			defer c.pool.condRelease(conn, goErr)
+			if !opt.deadline.IsZero() {
+				conn.nc.SetDeadline(opt.deadline)
+			}
+			defer func() {
+				if !opt.deadline.IsZero() {
+					conn.nc.SetDeadline(time.Time{})
+				}
+				c.pool.condRelease(conn, goErr)
+			}()
 
 			for _, key := range items {
-				cmd := c.makeGetCmd(key, append(o, func(c *mgOpts) {
-					c.opaque = keyNum[key]
-				})...)
-				conn.buff.Write(append(cmd, crlf...))
+				opt.opaque = keyNum[key]
+				conn.buff.Write(append(c.makeGetCmd(key, opt), crlf...))
 			}
 
 			conn.buff.Write([]byte("mn\r\n"))
@@ -47,13 +59,14 @@ func (c *Client) GetMulti(keys []string, o ...MgOption) (_ map[string]*Item, ret
 
 			var item *Item
 			for range len(items) + 1 {
-				if item, err = parseGetResponse(conn.buff); err != nil && !errors.Is(err, ErrCacheMiss) {
+				if item, err = parseGetResponse(conn.buff); err == nil {
+					item.Key = keys[item.opaque-1]
+					ch <- item
+					continue
+				}
+				if !errors.Is(err, ErrCacheMiss) {
 					return err
 				}
-
-				item.Key = keys[item.opaque-1]
-
-				ch <- item
 			}
 
 			return nil

@@ -68,8 +68,9 @@ type (
 
 type (
 	mgOpts struct {
-		cas    bool
-		opaque int
+		cas      bool
+		opaque   int
+		deadline time.Time
 	}
 	msOpts struct {
 		minUses           uint64
@@ -89,6 +90,11 @@ type (
 func WithCAS() MgOption {
 	return func(c *mgOpts) {
 		c.cas = true
+	}
+}
+func WithDeadline(t time.Time) MgOption {
+	return func(c *mgOpts) {
+		c.deadline = t
 	}
 }
 

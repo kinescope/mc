@@ -3,6 +3,7 @@ package mc
 // https://docs.memcached.org/protocols/meta/
 import (
 	"strconv"
+	"time"
 )
 
 var crlf = []byte("\r\n")
@@ -44,7 +45,11 @@ type Client struct {
 }
 
 func (c *Client) Get(k string, o ...MgOption) (_ *Item, retErr error) {
-	key, err := c.encodeKey(k)
+	var (
+		opt      mgOpts
+		key, err = c.encodeKey(k)
+	)
+
 	if err != nil {
 		return nil, err
 	}
@@ -54,13 +59,22 @@ func (c *Client) Get(k string, o ...MgOption) (_ *Item, retErr error) {
 		return nil, err
 	}
 
+	for _, fn := range o {
+		fn(&opt)
+	}
+
+	if !opt.deadline.IsZero() {
+		conn.nc.SetDeadline(opt.deadline)
+	}
+
 	defer func() {
+		if !opt.deadline.IsZero() {
+			conn.nc.SetDeadline(time.Time{})
+		}
 		c.pool.condRelease(conn, retErr)
 	}()
 
-	cmd := c.makeGetCmd(key, o...)
-
-	conn.buff.Write(append(cmd, crlf...))
+	conn.buff.Write(append(c.makeGetCmd(key, opt), crlf...))
 
 	if err := conn.buff.Flush(); err != nil {
 		return nil, err
@@ -120,7 +134,7 @@ func (c *Client) populateOne(mode string, i *Item, cas uint64, o ...MsOption) (r
 	}
 
 	if opts.minUses != 0 {
-		if v, _ := c.Inc(i.Key+"::_min_uses", 1, opts.expiration, WithInitialValue(1)); v < opts.minUses {
+		if v, err := c.Inc(i.Key+"::_min_uses", 1, opts.expiration, WithInitialValue(1)); err == nil && v < opts.minUses {
 			return nil
 		}
 	}
@@ -154,8 +168,6 @@ func (c *Client) populateOne(mode string, i *Item, cas uint64, o ...MsOption) (r
 		cmd = append(cmd, ' ', 'C')
 		cmd = strconv.AppendUint(cmd, cas, 10)
 	}
-
-	//	fmt.Println(string(cmd))
 
 	conn.buff.Write(append(cmd, crlf...))
 	conn.buff.Write(append(i.Value, crlf...))
