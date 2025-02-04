@@ -1,13 +1,10 @@
 package mc
 
 import (
-	"fmt"
-	"io"
 	"strconv"
-	"strings"
 )
 
-func (c *Client) arithmetic(op, k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, _ error) {
+func (c *Client) arithmetic(op, k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, retErr error) {
 	var opts maOpts
 	for _, fn := range o {
 		fn(&opts)
@@ -21,6 +18,7 @@ func (c *Client) arithmetic(op, k string, delta uint64, expiration uint32, o ...
 	if err != nil {
 		return 0, err
 	}
+	defer c.pool.condRelease(conn, retErr)
 
 	cmd := []byte("ma " + key + " " + op + " v D")
 	cmd = strconv.AppendUint(cmd, delta, 10)
@@ -46,41 +44,10 @@ func (c *Client) arithmetic(op, k string, delta uint64, expiration uint32, o ...
 		return 0, err
 	}
 
-	line, err := conn.buff.ReadString('\n')
+	item, err := parseGetResponse(conn.buff)
 	if err != nil {
 		return 0, err
 	}
 
-	switch line = strings.TrimSpace(line); {
-	case line == "NF": //not found
-		return 0, ErrCacheMiss
-	case strings.HasPrefix(line, "CLIENT_ERROR "):
-		msg := strings.TrimPrefix(line, "CLIENT_ERROR ")
-		if msg == "cannot increment or decrement non-numeric value" {
-			return 0, ErrBadIncrDec
-		}
-		return 0, &ClientError{
-			Message: msg,
-		}
-	case strings.HasPrefix(line, "VA "):
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			return 0, fmt.Errorf("invalid sever response: %s", line)
-		}
-
-		ln, err := strconv.Atoi(fields[1])
-		if err != nil {
-			return 0, err
-		}
-
-		value := make(Value, ln)
-
-		if _, err := io.ReadFull(conn.buff, value); err != nil {
-			return 0, err
-		}
-
-		return strconv.ParseUint(string(value), 10, 64)
-	}
-	return 0, nil
-
+	return strconv.ParseUint(string(item.Value), 10, 64)
 }

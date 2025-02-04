@@ -67,8 +67,25 @@ func parseGetResponse(buff *bufio.ReadWriter) (*Item, error) {
 	switch line {
 	case "MN":
 		return nil, errMnDone
-	case "EN":
+	case "EN", "NF":
 		return nil, ErrCacheMiss
+	case "ERROR":
+		return nil, ErrNonexistentCommandName
+	default:
+		switch {
+		case strings.HasPrefix(line, "CLIENT_ERROR "):
+			msg := strings.TrimPrefix(line, "CLIENT_ERROR ")
+			if msg == "cannot increment or decrement non-numeric value" {
+				return nil, ErrBadIncrDec
+			}
+			return nil, &ClientError{
+				Message: msg,
+			}
+		case strings.HasPrefix(line, "SERVER_ERROR "):
+			return nil, &ClientError{
+				Message: strings.TrimPrefix(line, "SERVER_ERROR "),
+			}
+		}
 	}
 
 	if !strings.HasPrefix(line, "VA ") {
@@ -114,25 +131,36 @@ func parseGetResponse(buff *bufio.ReadWriter) (*Item, error) {
 	return &item, nil
 }
 
-func parseResponse(buff *bufio.Reader) (*Value, error) {
+func parseResponse(buff *bufio.Reader) error {
 	line, err := buff.ReadSlice('\n')
 	if err != nil {
-		return nil, err
+		return err
 	}
 	switch line := strings.TrimSpace(string(line)); line {
 	case "HD":
-		return nil, nil
+		return nil
 	case "NS":
-		return nil, ErrNotStored
+		return ErrNotStored
 	case "NF":
-		return nil, ErrCacheMiss
+		return ErrCacheMiss
 	case "EX":
-		return nil, ErrCASConflict
+		return ErrCASConflict
 	case "ERROR":
-		return nil, ErrNonexistentCommandName
+		return ErrNonexistentCommandName
+	default:
+		switch {
+		case strings.HasPrefix(line, "CLIENT_ERROR "):
+			return &ClientError{
+				Message: strings.TrimPrefix(line, "CLIENT_ERROR "),
+			}
+		case strings.HasPrefix(line, "SERVER_ERROR "):
+			return &ClientError{
+				Message: strings.TrimPrefix(line, "SERVER_ERROR "),
+			}
+		}
 	}
 
-	return nil, nil
+	return nil
 }
 
 func checkKey(key string) bool {

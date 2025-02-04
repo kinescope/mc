@@ -3,7 +3,6 @@ package mc
 // https://docs.memcached.org/protocols/meta/
 import (
 	"strconv"
-	"strings"
 )
 
 var crlf = []byte("\r\n")
@@ -165,10 +164,7 @@ func (c *Client) populateOne(mode string, i *Item, cas uint64, o ...MsOption) (r
 		return err
 	}
 
-	if _, err := parseResponse(conn.buff.Reader); err != nil {
-		return err
-	}
-	return nil
+	return parseResponse(conn.buff.Reader)
 }
 
 func (c *Client) Del(k string, o ...MdOption) error {
@@ -195,35 +191,7 @@ func (c *Client) Del(k string, o ...MdOption) error {
 	if err := conn.buff.Flush(); err != nil {
 		return err
 	}
-	line, err := conn.buff.ReadString('\n')
-	if err != nil {
-		return err
-	}
-
-	switch line = strings.TrimSpace(line); line {
-	case "HD": // ok
-	case "NS":
-		return ErrNotStored
-	case "NF":
-		return ErrCacheMiss
-	case "EX":
-		return ErrCASConflict
-	case "ERROR":
-		return ErrNonexistentCommandName
-	default:
-		switch {
-		case strings.HasPrefix(line, "CLIENT_ERROR "):
-			return &ClientError{
-				Message: strings.TrimPrefix(line, "CLIENT_ERROR "),
-			}
-		case strings.HasPrefix(line, "SERVER_ERROR "):
-			return &ClientError{
-				Message: strings.TrimPrefix(line, "SERVER_ERROR "),
-			}
-		}
-	}
-
-	return nil
+	return parseResponse(conn.buff.Reader)
 }
 
 func (c *Client) Inc(k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, _ error) {
