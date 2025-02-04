@@ -45,7 +45,7 @@ func (p *pool) condRelease(conn *conn, err error) {
 		return
 	}
 	switch err {
-	case nil, ErrCacheMiss, ErrNotStored, ErrCASConflict, ErrMalformedKey:
+	case nil, ErrCacheMiss, ErrNotStored, ErrCASConflict, ErrMalformedKey, errMnDone:
 	default:
 		conn.close()
 		return

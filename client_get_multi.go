@@ -1,14 +1,10 @@
 package mc
 
 import (
-	"bytes"
-	"fmt"
-	"io"
-	"strconv"
-	"strings"
+	"errors"
 )
 
-func (c *Client) GetMulti(keys ...string) (_ map[string]*Item, retErr error) {
+func (c *Client) GetMulti(keys []string, o ...MgOption) (_ map[string]*Item, retErr error) {
 	keyNum := make(map[string]int)
 	keyMap := make(map[string][]string)
 	for n, k := range keys {
@@ -20,7 +16,7 @@ func (c *Client) GetMulti(keys ...string) (_ map[string]*Item, retErr error) {
 		if len(addrs) == 0 {
 			return nil, ErrNoServers
 		}
-		keyNum[key] = n
+		keyNum[key] = n + 1
 		keyMap[addrs[0]] = append(keyMap[addrs[0]], key)
 	}
 
@@ -29,68 +25,35 @@ func (c *Client) GetMulti(keys ...string) (_ map[string]*Item, retErr error) {
 	for addr, items := range keyMap {
 		ch := make(chan *Item)
 		chs = append(chs, ch)
-		go func(addr string, items []string, ch chan *Item) (retErr error) {
+		go func(addr string, items []string, ch chan *Item) (goErr error) {
 			defer close(ch)
 			conn, err := c.pool.getConn(addr)
 			if err != nil {
 				return nil
 			}
-			defer c.pool.condRelease(conn, retErr)
+			defer c.pool.condRelease(conn, goErr)
 
 			for _, key := range items {
-				cmd := fmt.Sprintf("mg "+key+" O%d f t c l v b\r\n", keyNum[key])
-				conn.buff.WriteString(cmd)
+				cmd := c.makeGetCmd(key, append(o, func(c *mgOpts) {
+					c.opaque = keyNum[key]
+				})...)
+				conn.buff.Write(append(cmd, crlf...))
 			}
 
-			conn.buff.WriteString("mn\r\n")
-			conn.buff.Flush()
+			conn.buff.Write([]byte("mn\r\n"))
+			if err := conn.buff.Flush(); err != nil {
+				return err
+			}
 
+			var item *Item
 			for range len(items) + 1 {
-				line, err := conn.buff.ReadString('\n')
-				if err != nil {
+				if item, err = parseGetResponse(conn.buff); err != nil && !errors.Is(err, ErrCacheMiss) {
 					return err
 				}
-				switch line = strings.TrimSpace(line); {
-				case line == "MN":
-					return nil
-				case strings.HasPrefix(line, "VA "):
-					fields := strings.Fields(strings.TrimPrefix(line, "VA "))
-					ln, err := strconv.Atoi(fields[0])
-					if err != nil {
-						return err
-					}
 
-					item := Item{
-						Value: make(Value, ln+2),
-					}
+				item.Key = keys[item.opaque-1]
 
-					for _, v := range fields[1:] {
-						switch v[0] {
-						case 'f': // flags
-						case 'c': // cas
-							item.cas, err = strconv.ParseUint(v[1:], 10, 0)
-						case 't':
-						case 'O':
-							num, _ := strconv.ParseUint(v[1:], 10, 0)
-							item.Key = keys[num]
-						}
-						if err != nil {
-							return err
-						}
-						//fmt.Println("VVV", v)
-					}
-
-					if _, err := io.ReadFull(conn.buff, item.Value); err != nil {
-						return
-					}
-					if !bytes.HasSuffix(item.Value, crlf) {
-						return
-					}
-					item.Value = item.Value[:ln]
-
-					ch <- &item
-				}
-
+				ch <- item
 			}
 
 			return nil

@@ -87,12 +87,12 @@ func TestCompareAndSwap(t *testing.T) {
 	})
 
 	if assert.NoError(t, err) {
-		if i, err := cache.Get(k); assert.NoError(t, err) {
+		if i, err := cache.Get(k, mc.WithCAS()); assert.NoError(t, err) {
 			if assert.Equal(t, v, string(i.Value)) {
 				v = randSeq(24)
 				i.Value = []byte(v)
 				if err = cache.CompareAndSwap(i); assert.NoError(t, err) {
-					if i, err := cache.Get(k); assert.NoError(t, err) {
+					if i, err := cache.Get(k, mc.WithCAS()); assert.NoError(t, err) {
 						if assert.Equal(t, v, string(i.Value)) {
 							err = cache.Set(&mc.Item{
 								Key:   k,

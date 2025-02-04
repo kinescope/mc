@@ -34,7 +34,7 @@ func TestGetMulti(t *testing.T) {
 		keyVal[k] = v
 		keys = append(keys, k)
 	}
-	if list, err := cache.GetMulti(keys...); assert.NoError(t, err) {
+	if list, err := cache.GetMulti(keys); assert.NoError(t, err) {
 		for k, v := range list {
 			assert.Equal(t, v.Value, list[k].Value)
 		}

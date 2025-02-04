@@ -67,7 +67,10 @@ type (
 )
 
 type (
-	mgOpts struct{}
+	mgOpts struct {
+		cas    bool
+		opaque int
+	}
 	msOpts struct {
 		minUses           uint64
 		expiration        uint32
@@ -80,6 +83,14 @@ type (
 		initialValue uint64
 	}
 )
+
+// Get
+
+func WithCAS() MgOption {
+	return func(c *mgOpts) {
+		c.cas = true
+	}
+}
 
 // Arithmetic
 

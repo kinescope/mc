@@ -4,7 +4,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/kinescope/mc)](https://goreportcard.com/report/github.com/kinescope/mc)
 [![godoc](https://img.shields.io/badge/docs-GoDoc-green.svg)](https://godoc.org/github.com/kinescope/mc)
 
-This is a memcache client library for the Go programming language, which uses memcache's Meta Text Protocol protocol and supports namespacing out of the box.
+This is a memcache client library for the Go programming language, which uses memcache's Meta Text Protocol and supports namespacing out of the box.
 
 ## Installing
 To add this libraty to your project, just run:

@@ -14,6 +14,7 @@ var (
 	ErrUnsupportedServerVersion = errors.New("memcache: unsupported server version ( < 1.6.14 )")
 	ErrBadIncrDec               = errors.New("memcache: cannot increment or decrement non-numeric value")
 	ErrCorruptGetResultRead     = errors.New("memcache: corrupt get result read")
+	errMnDone                   = errors.New("memcache: mn")
 	//ErrServerError              = errors.New("memcache: server error")
 	//ErrAlreadyExists = errors.New("memcache: item already exists")
 	//ErrValueTooLarge            = errors.New("memcache: value too large")

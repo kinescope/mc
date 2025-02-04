@@ -10,11 +10,12 @@ import (
 
 type (
 	Item struct {
-		Key   string
-		Value Value
-		Flags uint16
-		cas   uint64
-		win   bool
+		Key    string
+		Value  Value
+		Flags  uint16
+		cas    uint64
+		win    bool
+		opaque int
 	}
 	Value []byte
 )

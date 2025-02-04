@@ -2,9 +2,6 @@ package mc
 
 // https://docs.memcached.org/protocols/meta/
 import (
-	"bytes"
-	"fmt"
-	"io"
 	"strconv"
 	"strings"
 )
@@ -53,7 +50,6 @@ func (c *Client) Get(k string, o ...MgOption) (_ *Item, retErr error) {
 		return nil, err
 	}
 
-	//fmt.Println(k)
 	conn, err := c.pickServer(key)
 	if err != nil {
 		return nil, err
@@ -63,61 +59,21 @@ func (c *Client) Get(k string, o ...MgOption) (_ *Item, retErr error) {
 		c.pool.condRelease(conn, retErr)
 	}()
 
-	cmd := "mg " + key + " f t c l v b\r\n"
+	cmd := c.makeGetCmd(key, o...)
 
-	conn.buff.Write([]byte(cmd))
+	conn.buff.Write(append(cmd, crlf...))
 
-	conn.buff.Flush()
-
-	line, err := conn.buff.ReadString('\n')
-	if err != nil {
+	if err := conn.buff.Flush(); err != nil {
 		return nil, err
 	}
 
-	switch line = strings.TrimSpace(line); {
-	case line == "EN": //not found
-		return nil, ErrCacheMiss
-	case strings.HasPrefix(line, "VA "):
-		fields := strings.Fields(strings.TrimPrefix(line, "VA "))
-		ln, err := strconv.Atoi(fields[0])
-		if err != nil {
-			return nil, err
-		}
-
-		item := Item{
-			Key:   k,
-			Value: make(Value, ln+2),
-		}
-
-		for _, v := range fields[1:] {
-			switch v[0] {
-			case 'f': // flags
-			case 'c': // cas
-				item.cas, err = strconv.ParseUint(v[1:], 10, 0)
-			case 't':
-				/*ttl, err := strconv.ParseUint(v[1:], 10, 32)
-				if err != nil {
-					return nil, err
-				}
-				fmt.Println("TTL", ttl)*/
-			}
-			if err != nil {
-				return nil, err
-			}
-			//fmt.Println("VVV", v)
-		}
-
-		if _, err := io.ReadFull(conn.buff, item.Value); err != nil {
-			return nil, err
-		}
-		if !bytes.HasSuffix(item.Value, crlf) {
-			return nil, ErrCorruptGetResultRead
-		}
-		item.Value = item.Value[:ln]
-		return &item, nil
+	item, err := parseGetResponse(conn.buff)
+	if err != nil {
+		return nil, err
 	}
-	//fmt.Println(line)
-	return &Item{}, nil
+	item.Key = k
+	return item, nil
+
 }
 
 func (c *Client) Add(i *Item, o ...MsOption) error {
@@ -157,7 +113,7 @@ S: "set" command. The default mode, added for completeness.
 */
 
 // https://github.com/memcached/memcached/blob/master/doc/protocol.txt#L685
-func (c *Client) populateOne(mode string, i *Item, cas uint64, o ...MsOption) (err error) {
+func (c *Client) populateOne(mode string, i *Item, cas uint64, o ...MsOption) (retErr error) {
 	var opts msOpts
 
 	for _, fn := range o {
@@ -178,23 +134,36 @@ func (c *Client) populateOne(mode string, i *Item, cas uint64, o ...MsOption) (e
 	if err != nil {
 		return err
 	}
-	//fmt.Println(i.Key)
-	cmd := fmt.Sprintf("ms %s %d M%s T%d F%d b", key, len(i.Value), mode, 30, i.Flags)
+	defer c.pool.condRelease(conn, retErr)
 
-	if cas != 0 {
-		cmd += fmt.Sprintf(" C%d", cas)
+	cmd := []byte("ms " + key + " ")
+	cmd = strconv.AppendInt(cmd, int64(len(i.Value)), 10)
+	cmd = append(append(cmd, ' ', 'M'), []byte(mode)...)
+	if opts.expiration != 0 {
+		cmd = append(cmd, ' ', 'T')
+		cmd = strconv.AppendUint(cmd, uint64(opts.expiration), 10)
+	}
+	if i.Flags != 0 {
+		cmd = append(cmd, ' ', 'F')
+		cmd = strconv.AppendUint(cmd, uint64(i.Flags), 10)
 	}
 
-	//	fmt.Println(cmd)
+	if !c.opts.DisableBinaryEncodedKeys {
+		cmd = append(cmd, ' ', 'b')
+	}
+	if cas != 0 {
+		cmd = append(cmd, ' ', 'C')
+		cmd = strconv.AppendUint(cmd, cas, 10)
+	}
 
-	conn.buff.Write([]byte(cmd))
-	conn.buff.Write(crlf)
+	//	fmt.Println(string(cmd))
 
-	conn.buff.Write(i.Value)
+	conn.buff.Write(append(cmd, crlf...))
+	conn.buff.Write(append(i.Value, crlf...))
 
-	conn.buff.Write(crlf)
-
-	conn.buff.Flush()
+	if err := conn.buff.Flush(); err != nil {
+		return err
+	}
 
 	if _, err := parseResponse(conn.buff.Reader); err != nil {
 		return err
@@ -262,16 +231,4 @@ func (c *Client) Inc(k string, delta uint64, expiration uint32, o ...MaOption) (
 }
 func (c *Client) Dec(k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, _ error) {
 	return c.arithmetic("M-", k, delta, expiration, o...)
-}
-
-func checkKey(key string) bool {
-	if len(key) > 250 {
-		return false
-	}
-	for i := 0; i < len(key); i++ {
-		if key[i] <= ' ' || key[i] > 0x7e {
-			return false
-		}
-	}
-	return true
 }
