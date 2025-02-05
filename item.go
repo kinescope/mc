@@ -10,18 +10,20 @@ import (
 
 type (
 	Item struct {
-		Key    string
-		Value  Value
-		Flags  uint16
-		cr     float32 // compression ratio
-		cas    uint64
-		win    bool
-		opaque int
+		Key     string
+		Value   Value
+		Flags   uint16
+		cr      float32 // compression ratio
+		cas     uint64
+		won     bool
+		isStale bool
+		opaque  int
 	}
 	Value []byte
 )
 
-func (i *Item) Win() bool { return i.win }
+func (i *Item) Won() bool     { return i.won }
+func (i *Item) IsStale() bool { return i.isStale }
 
 func (i *Item) CompressionRatio() float32 { return i.cr }
 

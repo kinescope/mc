@@ -4,6 +4,13 @@ import (
 	"strconv"
 )
 
+func (c *Client) Inc(k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, _ error) {
+	return c.arithmetic("M+", k, delta, expiration, o...)
+}
+func (c *Client) Dec(k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, _ error) {
+	return c.arithmetic("M-", k, delta, expiration, o...)
+}
+
 func (c *Client) arithmetic(op, k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, retErr error) {
 	var opts maOpts
 	for _, fn := range o {

@@ -45,6 +45,11 @@ func (c *Client) makeGetCmd(key string, opt mgOpts) []byte {
 		cmd = strconv.AppendInt(cmd, int64(opt.opaque), 10)
 	}
 
+	if opt.earlyRecache > 0 {
+		cmd = append(cmd, ' ', 'R')
+		cmd = strconv.AppendInt(cmd, int64(opt.earlyRecache), 10)
+	}
+
 	if !c.opts.DisableBinaryEncodedKeys {
 		cmd = append(cmd, []byte(" b")...)
 	}
@@ -103,6 +108,10 @@ func parseGetResponse(c *Client, buff *bufio.ReadWriter) (*Item, error) {
 
 	for _, v := range fields[1:] {
 		switch v[0] {
+		case 'W':
+			item.won = true
+		case 'X':
+			item.isStale = true
 		case 'f': // flags
 			v, err := strconv.ParseUint(v[1:], 10, 0)
 			if err != nil {

@@ -68,9 +68,10 @@ type (
 
 type (
 	mgOpts struct {
-		cas      bool
-		opaque   int
-		deadline time.Time
+		cas          bool
+		opaque       int
+		deadline     time.Time
+		earlyRecache int
 	}
 	msOpts struct {
 		namespace         string
@@ -93,9 +94,16 @@ func WithCAS() MgOption {
 		c.cas = true
 	}
 }
+
 func WithDeadline(t time.Time) MgOption {
 	return func(c *mgOpts) {
 		c.deadline = t
+	}
+}
+
+func WithEarlyRecache(seconds int) MgOption {
+	return func(c *mgOpts) {
+		c.earlyRecache = seconds
 	}
 }
 
@@ -140,8 +148,4 @@ func WithInvalidate(seconds uint32) MdOption {
 	return func(c *mdOpts) {
 		c.expiration = seconds
 	}
-}
-
-func WithEarlyRecache(seconds int) MgOption {
-	return func(c *mgOpts) {}
 }
