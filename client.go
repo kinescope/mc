@@ -2,11 +2,19 @@ package mc
 
 // https://docs.memcached.org/protocols/meta/
 import (
+	"encoding/binary"
 	"strconv"
 	"time"
 )
 
 var crlf = []byte("\r\n")
+
+var endian = binary.BigEndian
+
+const (
+	compressed = 2
+	serialized = 4
+)
 
 func New(opts *Options) (*Client, error) {
 	opts.setDefaults()
@@ -149,6 +157,18 @@ func (c *Client) populateOne(mode string, i *Item, cas uint64, o ...MsOption) (r
 	}
 	defer c.pool.condRelease(conn, retErr)
 
+	var (
+		flags  int
+		source [4]byte
+	)
+
+	if opts.compressionMinLen != 0 && len(i.Value) > opts.compressionMinLen {
+		flags |= compressed
+		if i.Value, err = compress(i.Value); err != nil {
+			return err
+		}
+	}
+
 	cmd := []byte("ms " + key + " ")
 	cmd = strconv.AppendInt(cmd, int64(len(i.Value)), 10)
 	cmd = append(append(cmd, ' ', 'M'), []byte(mode)...)
@@ -156,9 +176,14 @@ func (c *Client) populateOne(mode string, i *Item, cas uint64, o ...MsOption) (r
 		cmd = append(cmd, ' ', 'T')
 		cmd = strconv.AppendUint(cmd, uint64(opts.expiration), 10)
 	}
-	if i.Flags != 0 {
+
+	if i.Flags != 0 || flags != 0 {
+
+		endian.PutUint16(source[:2], uint16(flags))
+		endian.PutUint16(source[2:], uint16(i.Flags))
+
 		cmd = append(cmd, ' ', 'F')
-		cmd = strconv.AppendUint(cmd, uint64(i.Flags), 10)
+		cmd = strconv.AppendUint(cmd, uint64(endian.Uint32(source[:])), 10)
 	}
 
 	if !c.opts.DisableBinaryEncodedKeys {

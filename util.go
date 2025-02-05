@@ -94,9 +94,30 @@ func parseGetResponse(buff *bufio.ReadWriter) (*Item, error) {
 		Value: make(Value, size+2),
 	}
 
+	var (
+		_compressed bool
+		_serialized bool
+	)
+
 	for _, v := range fields[1:] {
 		switch v[0] {
 		case 'f': // flags
+			v, err := strconv.ParseUint(v[1:], 10, 0)
+			if err != nil {
+				return nil, err
+			}
+			var source [4]byte
+			endian.PutUint32(source[:], uint32(v))
+
+			item.Flags = endian.Uint16(source[2:])
+			{
+				f := endian.Uint16(source[:2])
+				{
+					_compressed = f&compressed == compressed
+					_serialized = f&serialized == serialized
+				}
+			}
+
 		case 'c': // cas
 			item.cas, err = strconv.ParseUint(v[1:], 10, 0)
 		case 't':
@@ -119,6 +140,16 @@ func parseGetResponse(buff *bufio.ReadWriter) (*Item, error) {
 	}
 
 	item.Value = item.Value[:size]
+
+	if _compressed {
+		if item.Value, err = uncompress(item.Value); err != nil {
+			return nil, err
+		}
+	}
+
+	if _serialized {
+
+	}
 
 	return &item, nil
 }

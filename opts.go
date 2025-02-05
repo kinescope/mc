@@ -13,11 +13,11 @@ const (
 )
 
 type Options struct {
-	Addrs                    []string
-	PickServer               func(key string) []string
-	DialTimeout              time.Duration
-	ReadTimeout              time.Duration
-	WriteTimeout             time.Duration
+	Addrs       []string
+	PickServer  func(key string) []string
+	DialTimeout time.Duration
+	//	ReadTimeout              time.Duration
+	//	WriteTimeout             time.Duration
 	ConnMaxLifetime          time.Duration
 	MaxIdleConnsPerAddr      int
 	DisableBinaryEncodedKeys bool
@@ -27,12 +27,12 @@ func (o *Options) setDefaults() error {
 	if o.DialTimeout == 0 {
 		o.DialTimeout = DefaultTimeout
 	}
-	if o.ReadTimeout == 0 {
+	/*if o.ReadTimeout == 0 {
 		o.ReadTimeout = DefaultTimeout
 	}
 	if o.WriteTimeout == 0 {
 		o.WriteTimeout = DefaultTimeout
-	}
+	}*/
 	if o.ConnMaxLifetime == 0 {
 		o.ConnMaxLifetime = DefaultConnMaxLifetime
 	}
@@ -73,6 +73,7 @@ type (
 		deadline time.Time
 	}
 	msOpts struct {
+		namespace         string
 		minUses           uint64
 		expiration        uint32
 		compressionMinLen int
@@ -98,19 +99,17 @@ func WithDeadline(t time.Time) MgOption {
 	}
 }
 
-// Arithmetic
-
-func WithInitialValue(v uint64) MaOption {
-	return func(c *maOpts) {
-		c.initialValue = v
-	}
-}
-
 // Set
 
 func WithMinUses(number uint64) MsOption {
 	return func(c *msOpts) {
 		c.minUses = number
+	}
+}
+
+func WithNamespace(ns string) MsOption {
+	return func(c *msOpts) {
+		c.namespace = ns
 	}
 }
 
@@ -126,6 +125,14 @@ func WithCompression(minLen int) MsOption {
 	}
 }
 
+// Arithmetic
+
+func WithInitialValue(v uint64) MaOption {
+	return func(c *maOpts) {
+		c.initialValue = v
+	}
+}
+
 // Del
 
 // mark as stale
@@ -138,28 +145,3 @@ func WithInvalidate(seconds uint32) MdOption {
 func WithEarlyRecache(seconds int) MgOption {
 	return func(c *mgOpts) {}
 }
-
-/*
-// Inc only
-func WithInitial(v uint64) SetOption {
-	return func(c *opts) {
-		c.initial = v
-	}
-}
-
-
-
-func WithNamespace(ns string) SetOption {
-	return func(c *opts) {
-		c.namespace = ns
-	}
-}
-
-
-
-func WithDeadline(time.Duration) SetOption {
-	return func(c *opts) {
-
-	}
-}
-*/

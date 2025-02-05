@@ -37,7 +37,6 @@ func (c *Client) arithmetic(op, k string, delta uint64, expiration uint32, o ...
 		cmd = append(cmd, []byte(" b")...)
 	}
 
-	//fmt.Println(key, string(cmd))
 	conn.buff.Write(append(cmd, crlf...))
 
 	if err := conn.buff.Flush(); err != nil {
