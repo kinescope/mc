@@ -237,37 +237,3 @@ func TestDeadline(t *testing.T) {
 		}
 	}
 }
-
-const (
-	compressed = 2
-	serialized = 4
-)
-
-func TestCompression(t *testing.T) {
-	cache, err := mc.New(&mc.Options{
-		Addrs: testServerAddrs,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for f := range 300 {
-		var (
-			k = randSeq(6)
-			v = randSeq(1024)
-		)
-
-		if err := cache.Set(&mc.Item{
-			Key:   k,
-			Value: mc.Value(v),
-			Flags: uint16(f),
-		}, mc.WithCompression(256)); assert.NoError(t, err) {
-
-			if i, err := cache.Get(k); assert.NoError(t, err) {
-				assert.Equal(t, f, int(i.Flags))
-				assert.Equal(t, k, i.Key)
-				assert.Equal(t, v, string(i.Value))
-			}
-		}
-	}
-}

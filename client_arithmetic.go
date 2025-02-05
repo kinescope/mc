@@ -43,7 +43,7 @@ func (c *Client) arithmetic(op, k string, delta uint64, expiration uint32, o ...
 		return 0, err
 	}
 
-	item, err := parseGetResponse(conn.buff)
+	item, err := parseGetResponse(c, conn.buff)
 	if err != nil {
 		return 0, err
 	}

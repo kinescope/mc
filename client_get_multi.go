@@ -59,7 +59,7 @@ func (c *Client) GetMulti(keys []string, o ...MgOption) (_ map[string]*Item, ret
 
 			var item *Item
 			for range len(items) + 1 {
-				if item, err = parseGetResponse(conn.buff); err == nil {
+				if item, err = parseGetResponse(c, conn.buff); err == nil {
 					item.Key = keys[item.opaque-1]
 					ch <- item
 					continue

@@ -9,13 +9,7 @@ message Namespace {
     uint64 Ver = 2;
 }
 
-message Expiration {
-    int64  Until = 1;
-    uint32 Scale = 2;
-}
-
 message Item {
-    bytes      Data       = 1;
-    Namespace  Namespace  = 2;
-    Expiration Expiration = 3;
+    bytes      Data      = 1;
+    Namespace  Namespace = 2;
 }

@@ -6,6 +6,8 @@ import (
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/kinescope/mc/proto/cache"
 )
 
 /*
@@ -50,7 +52,7 @@ func (c *Client) makeGetCmd(key string, opt mgOpts) []byte {
 	return cmd
 }
 
-func parseGetResponse(buff *bufio.ReadWriter) (*Item, error) {
+func parseGetResponse(c *Client, buff *bufio.ReadWriter) (*Item, error) {
 	line, err := buff.ReadString('\n')
 	if err != nil {
 		return nil, err
@@ -142,13 +144,28 @@ func parseGetResponse(buff *bufio.ReadWriter) (*Item, error) {
 	item.Value = item.Value[:size]
 
 	if _compressed {
+		size := float32(len(item.Value))
 		if item.Value, err = uncompress(item.Value); err != nil {
 			return nil, err
 		}
+		item.cr = size / float32(len(item.Value))
 	}
 
 	if _serialized {
+		var p cache.Item
+		if err := p.Unmarshal(item.Value); err != nil {
+			return nil, err
+		}
+		item.Value = p.Data
 
+		ver, err := c.nsVersion(p.Namespace.Key, 0)
+		if err != nil {
+			return nil, err
+		}
+
+		if ver != p.Namespace.Ver {
+			return nil, ErrCacheMiss
+		}
 	}
 
 	return &item, nil

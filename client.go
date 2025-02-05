@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"strconv"
 	"time"
+
+	"github.com/kinescope/mc/proto/cache"
 )
 
 var crlf = []byte("\r\n")
@@ -88,7 +90,7 @@ func (c *Client) Get(k string, o ...MgOption) (_ *Item, retErr error) {
 		return nil, err
 	}
 
-	item, err := parseGetResponse(conn.buff)
+	item, err := parseGetResponse(c, conn.buff)
 	if err != nil {
 		return nil, err
 	}
@@ -161,6 +163,24 @@ func (c *Client) populateOne(mode string, i *Item, cas uint64, o ...MsOption) (r
 		flags  int
 		source [4]byte
 	)
+
+	if len(opts.namespace) != 0 {
+		flags |= serialized
+		ver, err := c.nsVersion(opts.namespace, 0)
+		if err != nil {
+			return err
+		}
+		i.Value, err = (&cache.Item{
+			Data: i.Value,
+			Namespace: &cache.Namespace{
+				Key: opts.namespace,
+				Ver: ver,
+			},
+		}).Marshal()
+		if err != nil {
+			return err
+		}
+	}
 
 	if opts.compressionMinLen != 0 && len(i.Value) > opts.compressionMinLen {
 		flags |= compressed
@@ -236,4 +256,15 @@ func (c *Client) Inc(k string, delta uint64, expiration uint32, o ...MaOption) (
 }
 func (c *Client) Dec(k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, _ error) {
 	return c.arithmetic("M-", k, delta, expiration, o...)
+}
+
+func (c *Client) PurgeNamespace(ns string) error {
+	if _, err := c.nsVersion(ns, 1); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Client) nsVersion(ns string, delta uint64) (uint64, error) {
+	return c.Inc("namespace::"+ns, delta, 0, WithInitialValue(uint64(time.Now().UnixNano())))
 }

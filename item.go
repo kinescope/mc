@@ -13,6 +13,7 @@ type (
 		Key    string
 		Value  Value
 		Flags  uint16
+		cr     float32 // compression ratio
 		cas    uint64
 		win    bool
 		opaque int
@@ -21,6 +22,8 @@ type (
 )
 
 func (i *Item) Win() bool { return i.win }
+
+func (i *Item) CompressionRatio() float32 { return i.cr }
 
 func (val *Value) Marshal(v any) (err error) {
 	r, err := marshal(v)
