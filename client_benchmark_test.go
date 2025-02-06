@@ -2,7 +2,6 @@ package mc_test
 
 import (
 	"bytes"
-	"context"
 	"testing"
 
 	"github.com/bradfitz/gomemcache/memcache"
@@ -11,7 +10,8 @@ import (
 
 func BenchmarkParallel(b *testing.B) {
 	cache, err := mc.New(&mc.Options{
-		Addrs: testServerAddrs,
+		Addrs:                    testServerAddrs,
+		DisableBinaryEncodedKeys: true,
 	})
 	if err != nil {
 		b.Fatal(err)
@@ -20,12 +20,11 @@ func BenchmarkParallel(b *testing.B) {
 	b.ResetTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
-		ctx := context.Background()
 		var (
 			k = randSeq(16)
 			v = randSeq(24)
 		)
-		err = cache.Set(ctx, &mc.Item{
+		err = cache.Set(&mc.Item{
 			Key:   k,
 			Value: []byte(v),
 		})
@@ -33,7 +32,7 @@ func BenchmarkParallel(b *testing.B) {
 			b.Fatal(err)
 		}
 		for pb.Next() {
-			i, err := cache.Get(ctx, k)
+			i, err := cache.Get(k)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -46,20 +45,21 @@ func BenchmarkParallel(b *testing.B) {
 
 func BenchmarkGet(b *testing.B) {
 	cache, err := mc.New(&mc.Options{
-		Addrs: testServerAddrs,
+		Addrs:                    testServerAddrs,
+		DisableBinaryEncodedKeys: true,
 	})
 	if err != nil {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
-	ctx := context.Background()
-	cache.Set(ctx, &mc.Item{
+
+	cache.Set(&mc.Item{
 		Key:   "benchmark_get",
 		Value: []byte("benchmark"),
 	})
 	for range b.N {
-		if _, err := cache.Get(ctx, "benchmark_get"); err != nil {
+		if _, err := cache.Get("benchmark_get"); err != nil {
 			b.Fatal(err)
 		}
 	}

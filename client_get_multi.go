@@ -1,102 +1,77 @@
 package mc
 
 import (
-	"context"
+	"errors"
 	"time"
-
-	"github.com/kinescope/mc/internal/clock"
-	"github.com/kinescope/mc/proto/cache"
-	"github.com/kinescope/mc/protocol"
-	"google.golang.org/protobuf/proto"
 )
 
-func (c *Client) GetMulti(ctx context.Context, keys ...string) (_ map[string]*Item, retErr error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
+func (c *Client) GetMulti(keys []string, o ...MgOption) (_ map[string]*Item, retErr error) {
+	keyNum := make(map[string]int)
 	keyMap := make(map[string][]string)
-	for _, key := range keys {
-		if !checkKey(key) {
-			return nil, ErrMalformedKey
+	for n, k := range keys {
+		key, err := c.encodeKey(k)
+		if err != nil {
+			return nil, err
 		}
 		addrs := c.opts.PickServer(key)
 		if len(addrs) == 0 {
 			return nil, ErrNoServers
 		}
+		keyNum[key] = n + 1
 		keyMap[addrs[0]] = append(keyMap[addrs[0]], key)
 	}
 
-	var chs []chan *Item
-
-	for addr, keys := range keyMap {
+	var (
+		opt mgOpts
+		chs []chan *Item
+	)
+	for _, fn := range o {
+		fn(&opt)
+	}
+	for addr, items := range keyMap {
 		ch := make(chan *Item)
 		chs = append(chs, ch)
-		go func(addr string, keys []string, ch chan *Item) {
+		go func(addr string, items []string, ch chan *Item) (goErr error) {
 			defer close(ch)
 			conn, err := c.pool.getConn(addr)
 			if err != nil {
-				return
+				return nil
 			}
-			defer c.pool.condRelease(conn, err)
-			if deadline, ok := ctx.Deadline(); ok {
-				conn.nc.SetDeadline(deadline)
-				defer conn.nc.SetDeadline(time.Time{})
+			if !opt.deadline.IsZero() {
+				conn.nc.SetDeadline(opt.deadline)
+			}
+			defer func() {
+				if !opt.deadline.IsZero() {
+					conn.nc.SetDeadline(time.Time{})
+				}
+				c.pool.condRelease(conn, goErr)
+			}()
+
+			for _, key := range items {
+				opt.opaque = keyNum[key]
+				conn.buff.Write(append(c.makeGetCmd(key, opt), crlf...))
 			}
 
-			names := make(map[string]string, len(keys))
-			for _, k := range keys {
-				h := c.opts.KeyHashFunc(k)
-				names[string(h)] = k
-				err = conn.sendPacket(protocol.GetKQ, h, nil, nil, 0)
-				if err != nil {
-					return
-				}
+			conn.buff.Write([]byte("mn\r\n"))
+			if err := conn.buff.Flush(); err != nil {
+				return err
 			}
-			if err = conn.sendPacket(protocol.Noop, nil, nil, nil, 0); err != nil {
-				return
-			}
-			var packet *protocol.Packet
-			for {
-				packet, err = conn.readPacket()
-				if err != nil || len(packet.Key) == 0 {
-					break
-				}
-				var (
-					flags uint16
-					value = packet.Data
-				)
 
-				if len(packet.Extras) >= 4 {
-					flags = endian.Uint16(packet.Extras[2:])
-					if packet.Extras[0] == MagicValue {
-						var item cache.Item
-						if err := proto.Unmarshal(packet.Data, &item); err != nil {
-							continue
-						}
-						if item.Expiration != nil && item.Expiration.Until < clock.Unix() {
-							continue
-						}
-						if item.Namespace != nil {
-							if v, err := c.nsVersion(ctx, item.Namespace.Key, 0); err == nil {
-								if v != item.Namespace.Ver {
-									c.Delete(ctx, names[string(packet.Key)])
-									continue
-								}
-							}
-						}
-						value = item.Data
-					}
+			var item *Item
+			for range len(items) + 1 {
+				if item, err = parseGetResponse(c, conn.buff); err == nil {
+					item.Key = keys[item.opaque-1]
+					ch <- item
+					continue
 				}
-				ch <- &Item{
-					Key:   names[string(packet.Key)],
-					Value: value,
-					Flags: flags,
-					cas:   packet.CAS,
+				if !errors.Is(err, ErrCacheMiss) {
+					return err
 				}
 			}
-		}(addr, keys, ch)
+
+			return nil
+
+		}(addr, items, ch)
 	}
 	items := make(map[string]*Item)
 	for _, ch := range chs {
@@ -105,4 +80,5 @@ func (c *Client) GetMulti(ctx context.Context, keys ...string) (_ map[string]*It
 		}
 	}
 	return items, nil
+
 }
