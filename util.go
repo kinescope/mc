@@ -166,7 +166,7 @@ func parseGetResponse(c *Client, buff *bufio.ReadWriter) (*Item, error) {
 
 	if _compressed {
 		size := float32(len(item.Value))
-		if item.Value, err = uncompress(item.Value); err != nil {
+		if item.Value, err = c.decompress(item.Value); err != nil {
 			return nil, err
 		}
 		item.cr = size / float32(len(item.Value))

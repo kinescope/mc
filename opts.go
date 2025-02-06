@@ -13,14 +13,16 @@ const (
 )
 
 type Options struct {
-	Addrs       []string
-	PickServer  func(key string) []string
-	DialTimeout time.Duration
-	//	ReadTimeout              time.Duration
-	//	WriteTimeout             time.Duration
+	Addrs                    []string
+	PickServer               func(key string) []string
+	DialTimeout              time.Duration
 	ConnMaxLifetime          time.Duration
 	MaxIdleConnsPerAddr      int
 	DisableBinaryEncodedKeys bool
+	Compression              struct {
+		Compress   func([]byte) ([]byte, error)
+		Decompress func([]byte) ([]byte, error)
+	}
 }
 
 func (o *Options) setDefaults() error {

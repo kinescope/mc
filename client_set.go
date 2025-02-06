@@ -95,7 +95,7 @@ func (c *Client) populateOne(mode string, i *Item, cas uint64, o ...MsOption) (r
 
 	if opts.compressionMinLen != 0 && len(i.Value) > opts.compressionMinLen {
 		flags |= compressed
-		if i.Value, err = compress(i.Value); err != nil {
+		if i.Value, err = c.compress(i.Value); err != nil {
 			return err
 		}
 	}

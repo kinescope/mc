@@ -41,6 +41,20 @@ func gzipWriter(w io.Writer) *gzip.Writer {
 	return v
 }
 
+func (c *Client) compress(v []byte) ([]byte, error) {
+	if c.opts.Compression.Compress != nil {
+		return c.opts.Compression.Compress(v)
+	}
+	return compress(v)
+}
+
+func (c *Client) decompress(v []byte) ([]byte, error) {
+	if c.opts.Compression.Decompress != nil {
+		return c.opts.Compression.Decompress(v)
+	}
+	return decompress(v)
+}
+
 func compress(v []byte) ([]byte, error) {
 	buff := bytesBuffPool.Get().(*bytes.Buffer)
 	buff.Reset()
@@ -67,7 +81,7 @@ func compress(v []byte) ([]byte, error) {
 	return v, nil
 }
 
-func uncompress(value []byte) ([]byte, error) {
+func decompress(value []byte) ([]byte, error) {
 	buff := bytesBuffPool.Get().(*bytes.Buffer)
 	buff.Reset()
 	buff.Write(value)

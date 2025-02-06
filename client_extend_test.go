@@ -95,6 +95,49 @@ func TestCompression(t *testing.T) {
 	}
 }
 
+func TestCompressionOverride(t *testing.T) {
+	var (
+		compressed   bool
+		decompressed bool
+	)
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+		Compression: struct {
+			Compress   func([]byte) ([]byte, error)
+			Decompress func([]byte) ([]byte, error)
+		}{
+			Compress: func(b []byte) ([]byte, error) {
+				compressed = true
+				return b, nil
+			},
+			Decompress: func(b []byte) ([]byte, error) {
+				decompressed = true
+				return b, nil
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var (
+		k = randSeq(6)
+		v = randSeq(256)
+	)
+	err = cache.Set(&mc.Item{
+		Key:   k,
+		Value: []byte(v),
+	}, mc.WithExpiration(5), mc.WithCompression(10))
+
+	if assert.NoError(t, err) && (assert.True(t, compressed) && assert.False(t, decompressed)) {
+		if i, err := cache.Get(k); assert.NoError(t, err) {
+			if assert.Equal(t, v, string(i.Value)) {
+				assert.True(t, compressed)
+				assert.True(t, decompressed)
+			}
+		}
+	}
+}
+
 func TestEarlyRecache(t *testing.T) {
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
