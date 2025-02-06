@@ -2,6 +2,7 @@ package mc_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/kinescope/mc"
 	"github.com/stretchr/testify/assert"
@@ -206,14 +207,43 @@ func TestServeStale(t *testing.T) {
 			if assert.Equal(t, v, string(i.Value)) {
 				if err := cache.Del(k, mc.WithInvalidate(10)); assert.NoError(t, err) {
 					if i, err := cache.Get(k); assert.NoError(t, err) {
-						if assert.Equal(t, v, string(i.Value)) && assert.True(t, i.IsStale()) {
-							if err := cache.Del(k); assert.NoError(t, err) {
-								if _, err := cache.Get(k); assert.Error(t, err) {
-									assert.Equal(t, mc.ErrCacheMiss, err)
+						if assert.Equal(t, v, string(i.Value)) && assert.True(t, i.Stale()) {
+							if assert.True(t, i.Won()) {
+								if err := cache.Del(k); assert.NoError(t, err) {
+									if _, err := cache.Get(k); assert.Error(t, err) {
+										assert.Equal(t, mc.ErrCacheMiss, err)
+									}
 								}
 							}
 						}
 					}
+				}
+			}
+		}
+	}
+}
+
+func TestLastAccess(t *testing.T) {
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var (
+		k = randSeq(6)
+		v = randSeq(6)
+	)
+	err = cache.Set(&mc.Item{
+		Key:   k,
+		Value: []byte(v),
+	}, mc.WithExpiration(5))
+	if assert.NoError(t, err) {
+		if i, err := cache.Get(k, mc.WithLastAccess()); assert.NoError(t, err) {
+			if assert.Equal(t, 0, i.LastAccess()) {
+				time.Sleep(2 * time.Second)
+				if i, err := cache.Get(k, mc.WithLastAccess()); assert.NoError(t, err) {
+					assert.GreaterOrEqual(t, 2, i.LastAccess())
 				}
 			}
 		}

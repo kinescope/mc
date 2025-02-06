@@ -10,21 +10,22 @@ import (
 
 type (
 	Item struct {
-		Key     string
-		Value   Value
-		Flags   uint16
-		cr      float32 // compression ratio
-		cas     uint64
-		won     bool
-		isStale bool
-		opaque  int
+		Key        string
+		Value      Value
+		Flags      uint16
+		cr         float32 // compression ratio
+		cas        uint64
+		won        bool
+		stale      bool
+		opaque     int
+		lastAccess int64
 	}
 	Value []byte
 )
 
-func (i *Item) Won() bool     { return i.won }
-func (i *Item) IsStale() bool { return i.isStale }
-
+func (i *Item) Won() bool                 { return i.won }
+func (i *Item) Stale() bool               { return i.stale }
+func (i *Item) LastAccess() int           { return int(i.lastAccess) }
 func (i *Item) CompressionRatio() float32 { return i.cr }
 
 func (val *Value) Marshal(v any) (err error) {

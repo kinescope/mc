@@ -71,6 +71,7 @@ type (
 		cas          bool
 		opaque       int
 		deadline     time.Time
+		lastAccess   bool
 		earlyRecache int
 	}
 	msOpts struct {
@@ -98,6 +99,12 @@ func WithCAS() MgOption {
 func WithDeadline(t time.Time) MgOption {
 	return func(c *mgOpts) {
 		c.deadline = t
+	}
+}
+
+func WithLastAccess() MgOption {
+	return func(c *mgOpts) {
+		c.lastAccess = true
 	}
 }
 
