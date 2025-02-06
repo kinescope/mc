@@ -15,6 +15,7 @@ type (
 		Flags      uint16
 		cr         float32 // compression ratio
 		cas        uint64
+		hit        bool
 		won        bool
 		stale      bool
 		opaque     int
@@ -24,6 +25,7 @@ type (
 )
 
 func (i *Item) Won() bool                 { return i.won }
+func (i *Item) Hit() bool                 { return i.hit }
 func (i *Item) Stale() bool               { return i.stale }
 func (i *Item) LastAccess() int           { return int(i.lastAccess) }
 func (i *Item) CompressionRatio() float32 { return i.cr }

@@ -223,6 +223,32 @@ func TestServeStale(t *testing.T) {
 	}
 }
 
+func TestHit(t *testing.T) {
+	cache, err := mc.New(&mc.Options{
+		Addrs: testServerAddrs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var (
+		k = randSeq(6)
+		v = randSeq(6)
+	)
+	err = cache.Set(&mc.Item{
+		Key:   k,
+		Value: []byte(v),
+	}, mc.WithExpiration(5))
+	if assert.NoError(t, err) {
+		if i, err := cache.Get(k, mc.WithHit()); assert.NoError(t, err) {
+			if assert.False(t, i.Hit()) {
+				if i, err := cache.Get(k, mc.WithHit()); assert.NoError(t, err) {
+					assert.True(t, i.Hit())
+				}
+			}
+		}
+	}
+}
+
 func TestLastAccess(t *testing.T) {
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,

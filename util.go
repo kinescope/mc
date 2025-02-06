@@ -40,13 +40,18 @@ func (c *Client) makeGetCmd(key string, opt mgOpts) []byte {
 	if opt.cas {
 		cmd = append(cmd, ' ', 'c')
 	}
-	if opt.opaque != 0 {
-		cmd = append(cmd, ' ', 'O')
-		cmd = strconv.AppendInt(cmd, int64(opt.opaque), 10)
+
+	if opt.hit {
+		cmd = append(cmd, ' ', 'h')
 	}
 
 	if opt.lastAccess {
 		cmd = append(cmd, ' ', 'l')
+	}
+
+	if opt.opaque != 0 {
+		cmd = append(cmd, ' ', 'O')
+		cmd = strconv.AppendInt(cmd, int64(opt.opaque), 10)
 	}
 
 	if opt.earlyRecache > 0 {
@@ -137,6 +142,8 @@ func parseGetResponse(c *Client, buff *bufio.ReadWriter) (*Item, error) {
 			item.cas, err = strconv.ParseUint(v[1:], 10, 0)
 		case 'l':
 			item.lastAccess, err = strconv.ParseInt(v[1:], 10, 0)
+		case 'h':
+			item.hit = v[1:2] == "1"
 		case 'O':
 			var o uint64
 			if o, err = strconv.ParseUint(v[1:], 10, 0); err == nil {

@@ -69,6 +69,7 @@ type (
 type (
 	mgOpts struct {
 		cas          bool
+		hit          bool
 		opaque       int
 		deadline     time.Time
 		lastAccess   bool
@@ -93,6 +94,12 @@ type (
 func WithCAS() MgOption {
 	return func(c *mgOpts) {
 		c.cas = true
+	}
+}
+
+func WithHit() MgOption {
+	return func(c *mgOpts) {
+		c.hit = true
 	}
 }
 
