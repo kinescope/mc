@@ -47,7 +47,7 @@ func TestAddSet(t *testing.T) {
 					Key: k,
 				})
 				if assert.Error(t, err) {
-					assert.Equal(t, mc.ErrNotStored, err)
+					assert.Equal(t, mc.ErrEmptyValue, err)
 				}
 				v = randSeq(24)
 				err = cache.Set(&mc.Item{
@@ -63,7 +63,7 @@ func TestAddSet(t *testing.T) {
 					Key: k,
 				})
 				if assert.Error(t, err) {
-					assert.Equal(t, mc.ErrNotStored, err)
+					assert.Equal(t, mc.ErrEmptyValue, err)
 				}
 			}
 		}

@@ -44,6 +44,10 @@ S: "set" command. The default mode, added for completeness.
 
 // https://github.com/memcached/memcached/blob/master/doc/protocol.txt#L685
 func (c *Client) populateOne(mode string, i *Item, cas uint64, o ...MsOption) (retErr error) {
+	if len(i.Value) == 0 {
+		return ErrEmptyValue
+	}
+
 	var opts msOpts
 
 	for _, fn := range o {

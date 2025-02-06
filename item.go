@@ -30,7 +30,7 @@ func (i *Item) Stale() bool               { return i.stale }
 func (i *Item) LastAccess() int           { return int(i.lastAccess) }
 func (i *Item) CompressionRatio() float32 { return i.cr }
 
-func (val *Value) Marshal(v any) (err error) {
+func (val *Value) Marshal(v any) error {
 	r, err := marshal(v)
 	if err != nil {
 		return err
