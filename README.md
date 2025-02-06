@@ -4,7 +4,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/kinescope/mc)](https://goreportcard.com/report/github.com/kinescope/mc)
 [![godoc](https://img.shields.io/badge/docs-GoDoc-green.svg)](https://godoc.org/github.com/kinescope/mc)
 
-This is a memcache client library for the Go programming language, which uses memcache's Meta Text Protocol and supports namespacing out of the box.
+This is a memcache client library for the Go programming language, which uses memcache's [Meta Text Protocol](https://docs.memcached.org/protocols/meta) and supports namespacing out of the box.
 
 ## Installing
 To add this libraty to your project, just run:
@@ -96,6 +96,9 @@ For more info on namespaces see [memcache wiki](https://github.com/memcached/mem
 
 #### Other options
 - `mc.WithMinUses(number uint32)` - if an item under the key has been set less than `number` of times, requesting an item will result in a cache miss. See [tests](https://github.com/kinescope/mc/blob/main/client_extend_test.go) for clarity.
+- `mc.WithEarlyRecache(seconds int)` - https://docs.memcached.org/protocols/meta/#early-recache
+- `mc.WithLastAccess` - returns the time in seconds since last access.
+- ... - see `mc.With*`
 
 ## Contributing
 

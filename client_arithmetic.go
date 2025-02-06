@@ -36,12 +36,12 @@ func (c *Client) arithmetic(op, k string, delta uint64, expiration uint32, o ...
 	}
 
 	if expiration > 0 {
-		cmd = append(cmd, []byte(" T")...)
+		cmd = append(cmd, ' ', 'T')
 		cmd = strconv.AppendUint(cmd, uint64(expiration), 10)
 	}
 
 	if !c.opts.DisableBinaryEncodedKeys {
-		cmd = append(cmd, []byte(" b")...)
+		cmd = append(cmd, ' ', 'b')
 	}
 
 	conn.buff.Write(append(cmd, crlf...))
