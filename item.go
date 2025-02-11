@@ -2,8 +2,9 @@ package mc
 
 import (
 	"encoding"
+	"encoding/json"
 
-	json "github.com/bytedance/sonic"
+	"github.com/bytedance/sonic"
 	"github.com/tinylib/msgp/msgp"
 	"google.golang.org/protobuf/proto"
 )
@@ -47,18 +48,22 @@ func marshal(v any) ([]byte, error) {
 	switch v := v.(type) {
 	case proto.Message:
 		return proto.Marshal(v)
+	case json.Marshaler:
+		return v.MarshalJSON()
 	case msgp.Marshaler:
 		return v.MarshalMsg(nil)
 	case encoding.BinaryMarshaler:
 		return v.MarshalBinary()
 	}
-	return json.Marshal(v)
+	return sonic.Marshal(v)
 }
 
 func unmarshal(data []byte, v any) error {
 	switch v := v.(type) {
 	case proto.Message:
 		return proto.Unmarshal(data, v)
+	case json.Unmarshaler:
+		return v.UnmarshalJSON(data)
 	case msgp.Unmarshaler:
 		if _, err := v.UnmarshalMsg(data); err != nil {
 			return err
@@ -67,5 +72,5 @@ func unmarshal(data []byte, v any) error {
 	case encoding.BinaryUnmarshaler:
 		return v.UnmarshalBinary(data)
 	}
-	return json.Unmarshal(data, v)
+	return sonic.Unmarshal(data, v)
 }

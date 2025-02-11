@@ -3,7 +3,9 @@ package mc_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
+	"github.com/bytedance/sonic"
 	"github.com/kinescope/mc"
 	"github.com/kinescope/mc/proto/cache"
 	"github.com/stretchr/testify/assert"
@@ -90,6 +92,51 @@ func TestItemSerializeJson(t *testing.T) {
 		var v2 JsonTest
 		if err := i.Value.Unmarshal(&v2); assert.NoError(t, err) {
 			assert.Equal(t, v.Data, v2.Data)
+		}
+	}
+}
+
+type BenchStruct struct {
+	A string
+	B int
+	C time.Time
+}
+
+func BenchmarkSonic(b *testing.B) {
+	t := time.Now()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		data, err := sonic.Marshal(BenchStruct{
+			A: "test",
+			B: 24,
+			C: t,
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		var v BenchStruct
+		if err := sonic.Unmarshal(data, &v); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+func BenchmarkJson(b *testing.B) {
+	t := time.Now()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		data, err := json.Marshal(BenchStruct{
+			A: "test",
+			B: 24,
+			C: t,
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		var v BenchStruct
+		if err := json.Unmarshal(data, &v); err != nil {
+			b.Fatal(err)
 		}
 	}
 }
