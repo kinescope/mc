@@ -2,8 +2,8 @@ package mc
 
 import (
 	"encoding"
-	"encoding/json"
 
+	json "github.com/bytedance/sonic"
 	"github.com/tinylib/msgp/msgp"
 	"google.golang.org/protobuf/proto"
 )
