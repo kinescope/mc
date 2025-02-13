@@ -86,13 +86,15 @@ func BenchmarkGet(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	b.ReportAllocs()
-	b.ResetTimer()
 
 	cache.Set(&mc.Item{
 		Key:   "benchmark_get",
 		Value: []byte("benchmark"),
 	})
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
 	for range b.N {
 		if _, err := cache.Get("benchmark_get"); err != nil {
 			b.Fatal(err)
@@ -108,13 +110,15 @@ func BenchmarkGetMulti(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	b.ReportAllocs()
-	b.ResetTimer()
 
 	cache.Set(&mc.Item{
 		Key:   "benchmark_get",
 		Value: []byte("benchmark"),
 	})
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
 	for range b.N {
 		if _, err := cache.GetMulti([]string{"benchmark_get"}); err != nil {
 			b.Fatal(err)
@@ -124,12 +128,14 @@ func BenchmarkGetMulti(b *testing.B) {
 
 func BenchmarkOriginalGet(b *testing.B) {
 	cache := memcache.New(testServerAddrs...)
-	b.ReportAllocs()
-	b.ResetTimer()
+
 	cache.Set(&memcache.Item{
 		Key:   "benchmark_get",
 		Value: []byte("benchmark"),
 	})
+
+	b.ReportAllocs()
+	b.ResetTimer()
 	for range b.N {
 		if _, err := cache.Get("benchmark_get"); err != nil {
 			b.Fatal(err)
