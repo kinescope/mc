@@ -7,7 +7,7 @@ import (
 	"github.com/kinescope/mc"
 )
 
-func ExampleBase() {
+func ExampleNew() {
 	memcache, err := mc.New(&mc.Options{
 		Addrs: []string{"127.0.0.1:11211"},
 	})
