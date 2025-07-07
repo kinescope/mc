@@ -87,7 +87,7 @@ type (
 		expiration uint32
 	}
 	maOpts struct {
-		initialValue uint64
+		initialValue *uint64
 	}
 )
 
@@ -153,7 +153,7 @@ func WithCompression(minLen int) MsOption {
 
 func WithInitialValue(v uint64) MaOption {
 	return func(c *maOpts) {
-		c.initialValue = v
+		c.initialValue = &v
 	}
 }
 
