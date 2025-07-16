@@ -30,9 +30,9 @@ func (c *Client) arithmetic(op, k string, delta uint64, expiration uint32, o ...
 	cmd := []byte("ma " + key + " " + op + " v D")
 	cmd = strconv.AppendUint(cmd, delta, 10)
 
-	if opts.initialValue > 0 {
+	if opts.initialValue != nil {
 		cmd = append(cmd, []byte(" N0 J")...)
-		cmd = strconv.AppendUint(cmd, opts.initialValue, 10)
+		cmd = strconv.AppendUint(cmd, *opts.initialValue, 10)
 	}
 
 	if expiration > 0 {
