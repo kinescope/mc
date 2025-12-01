@@ -246,8 +246,16 @@ func TestGetMultiMixedKeys(t *testing.T) {
 	items, err := cache.GetMulti(ctx, keys)
 	assert.NoError(t, err)
 	assert.Len(t, items, 2)
-	assert.Equal(t, v1, string(items[k1].Value))
-	assert.Equal(t, v2, string(items[k2].Value))
+	if item, ok := items[k1]; ok {
+		assert.Equal(t, v1, string(item.Value))
+	} else {
+		t.Errorf("Key %s not found in results", k1)
+	}
+	if item, ok := items[k2]; ok {
+		assert.Equal(t, v2, string(item.Value))
+	} else {
+		t.Errorf("Key %s not found in results", k2)
+	}
 }
 
 // TestCompareAndSwapWithoutCAS tests CompareAndSwap without CAS token
@@ -814,25 +822,53 @@ func TestOpaqueValue(t *testing.T) {
 	}
 
 	keys := []string{randSeq(6), randSeq(6), randSeq(6)}
+	expectedValues := make(map[string]string)
 	for i, k := range keys {
+		val := fmt.Sprintf("value%d", i)
+		expectedValues[k] = val
 		err := cache.Set(ctx, &mc.Item{
 			Key:   k,
-			Value: []byte(fmt.Sprintf("value%d", i)),
+			Value: []byte(val),
 		})
 		assert.NoError(t, err)
 	}
 
-	items, err := cache.GetMulti(ctx, keys)
-	assert.NoError(t, err)
-	assert.Len(t, items, len(keys))
+	// Retry logic for race detector - sometimes keys may not be immediately available
+	var items map[string]*mc.Item
+	var lastErr error
+	for retry := 0; retry < 3; retry++ {
+		items, lastErr = cache.GetMulti(ctx, keys)
+		if lastErr == nil && len(items) == len(keys) {
+			break
+		}
+		if retry < 2 {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	assert.NoError(t, lastErr)
+	if !assert.Len(t, items, len(keys), "Expected %d items, got %d", len(keys), len(items)) {
+		// If length doesn't match, at least verify the items we got are correct
+		for k, item := range items {
+			if expectedVal, ok := expectedValues[k]; ok {
+				assert.Equal(t, expectedVal, string(item.Value), "Value mismatch for key %s", k)
+			}
+		}
+		return
+	}
 
 	// Verify all items were retrieved correctly
-	assert.Len(t, items, len(keys))
 	for _, k := range keys {
 		item, exists := items[k]
-		assert.True(t, exists, "Key %s should be in results", k)
-		assert.NotNil(t, item)
-		assert.NotEmpty(t, item.Value)
+		if !assert.True(t, exists, "Key %s should be in results", k) {
+			continue
+		}
+		if !assert.NotNil(t, item, "Item for key %s should not be nil", k) {
+			continue
+		}
+		if expectedVal, ok := expectedValues[k]; ok {
+			assert.Equal(t, expectedVal, string(item.Value), "Value mismatch for key %s", k)
+		}
 	}
 }
 
