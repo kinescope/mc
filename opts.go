@@ -29,12 +29,6 @@ func (o *Options) setDefaults() error {
 	if o.DialTimeout == 0 {
 		o.DialTimeout = DefaultTimeout
 	}
-	/*if o.ReadTimeout == 0 {
-		o.ReadTimeout = DefaultTimeout
-	}
-	if o.WriteTimeout == 0 {
-		o.WriteTimeout = DefaultTimeout
-	}*/
 	if o.ConnMaxLifetime == 0 {
 		o.ConnMaxLifetime = DefaultConnMaxLifetime
 	}
@@ -82,12 +76,15 @@ type (
 		minUses           uint64
 		expiration        uint32
 		compressionMinLen int
+		deadline          time.Time
 	}
 	mdOpts struct {
 		expiration uint32
+		deadline   time.Time
 	}
 	maOpts struct {
 		initialValue *uint64
+		deadline     time.Time
 	}
 )
 
@@ -149,11 +146,23 @@ func WithCompression(minLen int) MsOption {
 	}
 }
 
+func WithDeadlineSet(t time.Time) MsOption {
+	return func(c *msOpts) {
+		c.deadline = t
+	}
+}
+
 // Arithmetic
 
 func WithInitialValue(v uint64) MaOption {
 	return func(c *maOpts) {
 		c.initialValue = &v
+	}
+}
+
+func WithDeadlineArithmetic(t time.Time) MaOption {
+	return func(c *maOpts) {
+		c.deadline = t
 	}
 }
 
@@ -163,5 +172,11 @@ func WithInitialValue(v uint64) MaOption {
 func WithInvalidate(seconds uint32) MdOption {
 	return func(c *mdOpts) {
 		c.expiration = seconds
+	}
+}
+
+func WithDeadlineDel(t time.Time) MdOption {
+	return func(c *mdOpts) {
+		c.deadline = t
 	}
 }

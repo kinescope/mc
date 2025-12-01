@@ -1,6 +1,7 @@
 package mc_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 )
 
 func TestGetMulti(t *testing.T) {
+	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
 	})
@@ -24,7 +26,7 @@ func TestGetMulti(t *testing.T) {
 			k = fmt.Sprintf("%s_%d", randSeq(16), n)
 			v = fmt.Sprintf("%s_%d", randSeq(16), n)
 		)
-		err := cache.Set(&mc.Item{
+		err := cache.Set(ctx, &mc.Item{
 			Key:   k,
 			Value: []byte(v),
 		})
@@ -34,7 +36,7 @@ func TestGetMulti(t *testing.T) {
 		keyVal[k] = v
 		keys = append(keys, k)
 	}
-	if list, err := cache.GetMulti(keys); assert.NoError(t, err) {
+	if list, err := cache.GetMulti(ctx, keys); assert.NoError(t, err) {
 		for k, v := range list {
 			assert.Equal(t, v.Value, list[k].Value)
 		}
@@ -42,6 +44,7 @@ func TestGetMulti(t *testing.T) {
 }
 
 func TestGetMultiDisableBinaryEncodedKeys(t *testing.T) {
+	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs:                    testServerAddrs,
 		DisableBinaryEncodedKeys: true,
@@ -58,7 +61,7 @@ func TestGetMultiDisableBinaryEncodedKeys(t *testing.T) {
 			k = fmt.Sprintf("%s_%d", randSeq(16), n)
 			v = fmt.Sprintf("%s_%d", randSeq(16), n)
 		)
-		err := cache.Set(&mc.Item{
+		err := cache.Set(ctx, &mc.Item{
 			Key:   k,
 			Value: []byte(v),
 		})
@@ -68,7 +71,7 @@ func TestGetMultiDisableBinaryEncodedKeys(t *testing.T) {
 		keyVal[k] = v
 		keys = append(keys, k)
 	}
-	if list, err := cache.GetMulti(keys); assert.NoError(t, err) {
+	if list, err := cache.GetMulti(ctx, keys); assert.NoError(t, err) {
 		for k, v := range list {
 			assert.Equal(t, v.Value, list[k].Value)
 		}
@@ -76,6 +79,7 @@ func TestGetMultiDisableBinaryEncodedKeys(t *testing.T) {
 }
 
 func TestGetMultiNamespace(t *testing.T) {
+	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
 	})
@@ -97,7 +101,7 @@ func TestGetMultiNamespace(t *testing.T) {
 				k = fmt.Sprintf("%s_%d", randSeq(16), n)
 				v = fmt.Sprintf("%s_%d", randSeq(16), n)
 			)
-			err := cache.Set(&mc.Item{
+			err := cache.Set(ctx, &mc.Item{
 				Key:   k,
 				Value: []byte(v),
 			}, mc.WithNamespace(ns))
@@ -108,22 +112,22 @@ func TestGetMultiNamespace(t *testing.T) {
 		}
 	}
 	for i, keys := range keys {
-		if list, err := cache.GetMulti(keys); assert.NoError(t, err) {
+		if list, err := cache.GetMulti(ctx, keys); assert.NoError(t, err) {
 			for k, v := range list {
 				assert.Equal(t, keyVal[i][k], string(v.Value))
 			}
 		}
 	}
 
-	cache.PurgeNamespace(ns1)
-	if list, err := cache.GetMulti(keys[1]); assert.NoError(t, err) {
+	cache.PurgeNamespace(ctx, ns1)
+	if list, err := cache.GetMulti(ctx, keys[1]); assert.NoError(t, err) {
 		if assert.Len(t, list, len(keys[1])) {
 			for k, v := range list {
 				assert.Equal(t, keyVal[1][k], string(v.Value))
 			}
 		}
 	}
-	if list, err := cache.GetMulti(keys[0]); assert.NoError(t, err) {
+	if list, err := cache.GetMulti(ctx, keys[0]); assert.NoError(t, err) {
 		assert.Len(t, list, 0)
 	}
 }

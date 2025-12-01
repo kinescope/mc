@@ -1,21 +1,23 @@
 package mc
 
 import (
+	"context"
 	"strconv"
+	"time"
 
 	"github.com/kinescope/mc/proto/cache"
 )
 
-func (c *Client) Add(i *Item, o ...MsOption) error {
-	return c.populateOne("E", i, 0, o...)
+func (c *Client) Add(ctx context.Context, i *Item, o ...MsOption) error {
+	return c.populateOne(ctx, "E", i, 0, o...)
 }
 
-func (c *Client) Set(i *Item, o ...MsOption) error {
-	return c.populateOne("S", i, 0, o...)
+func (c *Client) Set(ctx context.Context, i *Item, o ...MsOption) error {
+	return c.populateOne(ctx, "S", i, 0, o...)
 }
 
-func (c *Client) CompareAndSwap(i *Item, o ...MsOption) error {
-	return c.populateOne("S", i, i.cas, o...)
+func (c *Client) CompareAndSwap(ctx context.Context, i *Item, o ...MsOption) error {
+	return c.populateOne(ctx, "S", i, i.cas, o...)
 }
 
 /*
@@ -43,7 +45,7 @@ S: "set" command. The default mode, added for completeness.
 */
 
 // https://github.com/memcached/memcached/blob/master/doc/protocol.txt#L685
-func (c *Client) populateOne(mode string, i *Item, cas uint64, o ...MsOption) (retErr error) {
+func (c *Client) populateOne(ctx context.Context, mode string, i *Item, cas uint64, o ...MsOption) (retErr error) {
 	if len(i.Value) == 0 {
 		return ErrEmptyValue
 	}
@@ -55,9 +57,16 @@ func (c *Client) populateOne(mode string, i *Item, cas uint64, o ...MsOption) (r
 	}
 
 	if opts.minUses != 0 {
-		if v, err := c.Inc(i.Key+"::_min_uses", 1, opts.expiration, WithInitialValue(1)); err == nil && v < opts.minUses {
+		if v, err := c.Inc(ctx, i.Key+"::_min_uses", 1, opts.expiration, WithInitialValue(1)); err == nil && v < opts.minUses {
 			return nil
 		}
+	}
+
+	// Check context before operations
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 	}
 
 	key, err := c.encodeKey(i.Key)
@@ -69,6 +78,18 @@ func (c *Client) populateOne(mode string, i *Item, cas uint64, o ...MsOption) (r
 		return err
 	}
 	defer c.pool.condRelease(conn, retErr)
+	
+	// Use minimum of opts.deadline and context.Deadline() if both are set
+	deadline := opts.deadline
+	if ctxDeadline, ok := ctx.Deadline(); ok {
+		if deadline.IsZero() || ctxDeadline.Before(deadline) {
+			deadline = ctxDeadline
+		}
+	}
+	if !deadline.IsZero() {
+		conn.nc.SetDeadline(deadline)
+		defer conn.nc.SetDeadline(time.Time{})
+	}
 
 	var (
 		flags  int
@@ -77,7 +98,7 @@ func (c *Client) populateOne(mode string, i *Item, cas uint64, o ...MsOption) (r
 
 	if len(opts.namespace) != 0 {
 		flags |= serialized
-		ver, err := c.nsVersion(opts.namespace, 0)
+		ver, err := c.nsVersion(ctx, opts.namespace, 0)
 		if err != nil {
 			return err
 		}

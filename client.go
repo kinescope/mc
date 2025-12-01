@@ -2,6 +2,7 @@ package mc
 
 // https://docs.memcached.org/protocols/meta/
 import (
+	"context"
 	"encoding/binary"
 	"time"
 )
@@ -51,13 +52,19 @@ type Client struct {
 	encodeKey func(string) (string, error)
 }
 
-func (c *Client) PurgeNamespace(ns string) error {
-	if _, err := c.nsVersion(ns, 1); err != nil {
+func (c *Client) PurgeNamespace(ctx context.Context, ns string) error {
+	if _, err := c.nsVersion(ctx, ns, 1); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (c *Client) nsVersion(ns string, delta uint64) (uint64, error) {
-	return c.Inc("namespace::"+ns, delta, 0, WithInitialValue(uint64(time.Now().UnixNano())))
+func (c *Client) nsVersion(ctx context.Context, ns string, delta uint64) (uint64, error) {
+	return c.Inc(ctx, "namespace::"+ns, delta, 0, WithInitialValue(uint64(time.Now().UnixNano())))
+}
+
+// Close closes all connections in the pool and releases resources.
+// After Close is called, the Client should not be used.
+func (c *Client) Close() error {
+	return c.pool.close()
 }

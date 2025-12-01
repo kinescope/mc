@@ -1,20 +1,29 @@
 package mc
 
 import (
+	"context"
 	"strconv"
+	"time"
 )
 
-func (c *Client) Inc(k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, _ error) {
-	return c.arithmetic("M+", k, delta, expiration, o...)
+func (c *Client) Inc(ctx context.Context, k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, _ error) {
+	return c.arithmetic(ctx, "M+", k, delta, expiration, o...)
 }
-func (c *Client) Dec(k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, _ error) {
-	return c.arithmetic("M-", k, delta, expiration, o...)
+func (c *Client) Dec(ctx context.Context, k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, _ error) {
+	return c.arithmetic(ctx, "M-", k, delta, expiration, o...)
 }
 
-func (c *Client) arithmetic(op, k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, retErr error) {
+func (c *Client) arithmetic(ctx context.Context, op, k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, retErr error) {
 	var opts maOpts
 	for _, fn := range o {
 		fn(&opts)
+	}
+
+	// Check context before operations
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	default:
 	}
 
 	key, err := c.encodeKey(k)
@@ -26,6 +35,18 @@ func (c *Client) arithmetic(op, k string, delta uint64, expiration uint32, o ...
 		return 0, err
 	}
 	defer c.pool.condRelease(conn, retErr)
+
+	// Use minimum of opts.deadline and context.Deadline() if both are set
+	deadline := opts.deadline
+	if ctxDeadline, ok := ctx.Deadline(); ok {
+		if deadline.IsZero() || ctxDeadline.Before(deadline) {
+			deadline = ctxDeadline
+		}
+	}
+	if !deadline.IsZero() {
+		conn.nc.SetDeadline(deadline)
+		defer conn.nc.SetDeadline(time.Time{})
+	}
 
 	cmd := []byte("ma " + key + " " + op + " v D")
 	cmd = strconv.AppendUint(cmd, delta, 10)
@@ -50,7 +71,7 @@ func (c *Client) arithmetic(op, k string, delta uint64, expiration uint32, o ...
 		return 0, err
 	}
 
-	item, err := parseGetResponse(c, conn.buff)
+	item, err := parseGetResponse(ctx, c, conn.buff)
 	if err != nil {
 		return 0, err
 	}

@@ -1,6 +1,7 @@
 package mc_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 )
 
 func TestMinUses(t *testing.T) {
+	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
 	})
@@ -21,15 +23,15 @@ func TestMinUses(t *testing.T) {
 		v = randSeq(6)
 	)
 
-	err = cache.Set(&mc.Item{
+	err = cache.Set(ctx, &mc.Item{
 		Key:   k,
 		Value: []byte(v),
 	}, mc.WithMinUses(5))
 
 	if assert.NoError(t, err) {
-		if _, err := cache.Get(k); assert.Equal(t, mc.ErrCacheMiss, err) {
+		if _, err := cache.Get(ctx, k); assert.Equal(t, mc.ErrCacheMiss, err) {
 			for range 4 {
-				err = cache.Set(&mc.Item{
+				err = cache.Set(ctx, &mc.Item{
 					Key:   k,
 					Value: []byte(v),
 				}, mc.WithMinUses(5))
@@ -37,7 +39,7 @@ func TestMinUses(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if i, err := cache.Get(k); assert.NoError(t, err) {
+			if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
 				assert.Equal(t, v, string(i.Value))
 			}
 		}
@@ -45,6 +47,7 @@ func TestMinUses(t *testing.T) {
 }
 
 func TestCompression(t *testing.T) {
+	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
 	})
@@ -58,13 +61,13 @@ func TestCompression(t *testing.T) {
 			v = randSeq(1024)
 		)
 
-		if err := cache.Set(&mc.Item{
+		if err := cache.Set(ctx, &mc.Item{
 			Key:   k,
 			Value: mc.Value(v),
 			Flags: uint16(f),
 		}, mc.WithCompression(256)); assert.NoError(t, err) {
 
-			if i, err := cache.Get(k); assert.NoError(t, err) {
+			if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
 				assert.Equal(t, f, int(i.Flags))
 				assert.Equal(t, k, i.Key)
 				assert.Equal(t, v, string(i.Value))
@@ -79,13 +82,13 @@ func TestCompression(t *testing.T) {
 			v = randSeq(512 * n)
 		)
 
-		if err := cache.Set(&mc.Item{
+		if err := cache.Set(ctx, &mc.Item{
 			Key:   k,
 			Value: mc.Value(v),
 			Flags: uint16(n),
 		}, mc.WithCompression(1024)); assert.NoError(t, err) {
 
-			if i, err := cache.Get(k); assert.NoError(t, err) {
+			if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
 				assert.Equal(t, n, int(i.Flags))
 				assert.Equal(t, k, i.Key)
 				assert.Equal(t, v, string(i.Value))
@@ -96,6 +99,7 @@ func TestCompression(t *testing.T) {
 }
 
 func TestCompressionOverride(t *testing.T) {
+	ctx := context.Background()
 	var (
 		compressed   bool
 		decompressed bool
@@ -123,13 +127,13 @@ func TestCompressionOverride(t *testing.T) {
 		k = randSeq(6)
 		v = randSeq(256)
 	)
-	err = cache.Set(&mc.Item{
+	err = cache.Set(ctx, &mc.Item{
 		Key:   k,
 		Value: []byte(v),
 	}, mc.WithExpiration(5), mc.WithCompression(10))
 
 	if assert.NoError(t, err) && (assert.True(t, compressed) && assert.False(t, decompressed)) {
-		if i, err := cache.Get(k); assert.NoError(t, err) {
+		if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
 			if assert.Equal(t, v, string(i.Value)) {
 				assert.True(t, compressed)
 				assert.True(t, decompressed)
@@ -139,6 +143,7 @@ func TestCompressionOverride(t *testing.T) {
 }
 
 func TestEarlyRecache(t *testing.T) {
+	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
 	})
@@ -149,16 +154,16 @@ func TestEarlyRecache(t *testing.T) {
 		k = randSeq(6)
 		v = randSeq(6)
 	)
-	err = cache.Set(&mc.Item{
+	err = cache.Set(ctx, &mc.Item{
 		Key:   k,
 		Value: []byte(v),
 	}, mc.WithExpiration(5))
 	if assert.NoError(t, err) {
-		if i, err := cache.Get(k); assert.NoError(t, err) {
+		if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
 			if assert.Equal(t, v, string(i.Value)) && assert.False(t, i.Won()) {
-				if i, err := cache.Get(k, mc.WithEarlyRecache(6)); assert.NoError(t, err) {
+				if i, err := cache.Get(ctx, k, mc.WithEarlyRecache(6)); assert.NoError(t, err) {
 					if assert.Equal(t, v, string(i.Value)) && assert.True(t, i.Won()) {
-						if i, err := cache.Get(k, mc.WithEarlyRecache(6)); assert.NoError(t, err) {
+						if i, err := cache.Get(ctx, k, mc.WithEarlyRecache(6)); assert.NoError(t, err) {
 							assert.Equal(t, v, string(i.Value))
 							assert.False(t, i.Won())
 						}
@@ -170,6 +175,7 @@ func TestEarlyRecache(t *testing.T) {
 }
 
 func TestNamespace(t *testing.T) {
+	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
 	})
@@ -184,7 +190,7 @@ func TestNamespace(t *testing.T) {
 		keyVal[randSeq(10)] = randSeq(10)
 	}
 	for k, v := range keyVal {
-		err = cache.Set(&mc.Item{
+		err = cache.Set(ctx, &mc.Item{
 			Key:   k,
 			Value: []byte(v),
 		}, mc.WithNamespace(ns))
@@ -198,7 +204,7 @@ func TestNamespace(t *testing.T) {
 		v   = randSeq(6)
 		ns2 = randSeq(6)
 	)
-	err = cache.Set(&mc.Item{
+	err = cache.Set(ctx, &mc.Item{
 		Key:   k,
 		Value: []byte(v),
 	}, mc.WithNamespace(ns2))
@@ -206,31 +212,32 @@ func TestNamespace(t *testing.T) {
 		t.Fatal(err)
 	}
 	for k, v := range keyVal {
-		if i, err := cache.Get(k); assert.NoError(t, err) {
+		if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
 			assert.Equal(t, v, string(i.Value))
 		}
 	}
-	if i, err := cache.Get(k); assert.NoError(t, err) {
+	if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
 		assert.Equal(t, v, string(i.Value))
 	}
 
-	if err := cache.PurgeNamespace(ns); assert.NoError(t, err) {
-		if i, err := cache.Get(k); assert.NoError(t, err) {
+	if err := cache.PurgeNamespace(ctx, ns); assert.NoError(t, err) {
+		if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
 			if assert.Equal(t, v, string(i.Value)) {
 				for k := range keyVal {
-					if _, err := cache.Get(k); assert.Error(t, err) {
+					if _, err := cache.Get(ctx, k); assert.Error(t, err) {
 						assert.Equal(t, mc.ErrCacheMiss, err)
 					}
 				}
 			}
 		}
 	}
-	if i, err := cache.Get(k); assert.NoError(t, err) {
+	if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
 		assert.Equal(t, v, string(i.Value))
 	}
 }
 
 func TestServeStale(t *testing.T) {
+	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
 	})
@@ -241,19 +248,19 @@ func TestServeStale(t *testing.T) {
 		k = randSeq(6)
 		v = randSeq(6)
 	)
-	err = cache.Set(&mc.Item{
+	err = cache.Set(ctx, &mc.Item{
 		Key:   k,
 		Value: []byte(v),
 	}, mc.WithExpiration(5))
 	if assert.NoError(t, err) {
-		if i, err := cache.Get(k); assert.NoError(t, err) {
+		if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
 			if assert.Equal(t, v, string(i.Value)) {
-				if err := cache.Del(k, mc.WithInvalidate(10)); assert.NoError(t, err) {
-					if i, err := cache.Get(k); assert.NoError(t, err) {
+				if err := cache.Del(ctx, k, mc.WithInvalidate(10)); assert.NoError(t, err) {
+					if i, err := cache.Get(ctx, k); assert.NoError(t, err) {
 						if assert.Equal(t, v, string(i.Value)) && assert.True(t, i.Stale()) {
 							if assert.True(t, i.Won()) {
-								if err := cache.Del(k); assert.NoError(t, err) {
-									if _, err := cache.Get(k); assert.Error(t, err) {
+								if err := cache.Del(ctx, k); assert.NoError(t, err) {
+									if _, err := cache.Get(ctx, k); assert.Error(t, err) {
 										assert.Equal(t, mc.ErrCacheMiss, err)
 									}
 								}
@@ -267,6 +274,7 @@ func TestServeStale(t *testing.T) {
 }
 
 func TestHit(t *testing.T) {
+	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
 	})
@@ -277,14 +285,14 @@ func TestHit(t *testing.T) {
 		k = randSeq(6)
 		v = randSeq(6)
 	)
-	err = cache.Set(&mc.Item{
+	err = cache.Set(ctx, &mc.Item{
 		Key:   k,
 		Value: []byte(v),
 	}, mc.WithExpiration(5))
 	if assert.NoError(t, err) {
-		if i, err := cache.Get(k, mc.WithHit()); assert.NoError(t, err) {
+		if i, err := cache.Get(ctx, k, mc.WithHit()); assert.NoError(t, err) {
 			if assert.False(t, i.Hit()) {
-				if i, err := cache.Get(k, mc.WithHit()); assert.NoError(t, err) {
+				if i, err := cache.Get(ctx, k, mc.WithHit()); assert.NoError(t, err) {
 					assert.True(t, i.Hit())
 				}
 			}
@@ -293,6 +301,7 @@ func TestHit(t *testing.T) {
 }
 
 func TestLastAccess(t *testing.T) {
+	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs: testServerAddrs,
 	})
@@ -303,15 +312,15 @@ func TestLastAccess(t *testing.T) {
 		k = randSeq(6)
 		v = randSeq(6)
 	)
-	err = cache.Set(&mc.Item{
+	err = cache.Set(ctx, &mc.Item{
 		Key:   k,
 		Value: []byte(v),
 	}, mc.WithExpiration(5))
 	if assert.NoError(t, err) {
-		if i, err := cache.Get(k, mc.WithLastAccess()); assert.NoError(t, err) {
+		if i, err := cache.Get(ctx, k, mc.WithLastAccess()); assert.NoError(t, err) {
 			if assert.Equal(t, 0, i.LastAccess()) {
 				time.Sleep(2 * time.Second)
-				if i, err := cache.Get(k, mc.WithLastAccess()); assert.NoError(t, err) {
+				if i, err := cache.Get(ctx, k, mc.WithLastAccess()); assert.NoError(t, err) {
 					assert.GreaterOrEqual(t, 2, i.LastAccess())
 				}
 			}

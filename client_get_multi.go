@@ -1,11 +1,12 @@
 package mc
 
 import (
+	"context"
 	"errors"
 	"time"
 )
 
-func (c *Client) GetMulti(keys []string, o ...MgOption) (_ map[string]*Item, retErr error) {
+func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ map[string]*Item, retErr error) {
 	keyNum := make(map[string]int)
 	keyMap := make(map[string][]string)
 	for n, k := range keys {
@@ -28,28 +29,46 @@ func (c *Client) GetMulti(keys []string, o ...MgOption) (_ map[string]*Item, ret
 	for _, fn := range o {
 		fn(&opt)
 	}
+
+	// Use minimum of opt.deadline and context.Deadline() if both are set
+	deadline := opt.deadline
+	if ctxDeadline, ok := ctx.Deadline(); ok {
+		if deadline.IsZero() || ctxDeadline.Before(deadline) {
+			deadline = ctxDeadline
+		}
+	}
+
 	for addr, items := range keyMap {
 		ch := make(chan *Item)
 		chs = append(chs, ch)
 		go func(addr string, items []string, ch chan *Item) (goErr error) {
 			defer close(ch)
+			// Создать локальную копию opt для этой горутины
+			localOpt := opt
 			conn, err := c.pool.getConn(addr)
 			if err != nil {
 				return nil
 			}
-			if !opt.deadline.IsZero() {
-				conn.nc.SetDeadline(opt.deadline)
+			if !deadline.IsZero() {
+				conn.nc.SetDeadline(deadline)
 			}
 			defer func() {
-				if !opt.deadline.IsZero() {
+				if !deadline.IsZero() {
 					conn.nc.SetDeadline(time.Time{})
 				}
 				c.pool.condRelease(conn, goErr)
 			}()
 
+			// Check context before operations
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
 			for _, key := range items {
-				opt.opaque = keyNum[key]
-				conn.buff.Write(append(c.makeGetCmd(key, opt), crlf...))
+				localOpt.opaque = keyNum[key]
+				conn.buff.Write(append(c.makeGetCmd(key, localOpt), crlf...))
 			}
 
 			conn.buff.Write([]byte("mn\r\n"))
@@ -59,7 +78,7 @@ func (c *Client) GetMulti(keys []string, o ...MgOption) (_ map[string]*Item, ret
 
 			var item *Item
 			for range len(items) + 1 {
-				if item, err = parseGetResponse(c, conn.buff); err == nil {
+				if item, err = parseGetResponse(ctx, c, conn.buff); err == nil {
 					item.Key = keys[item.opaque-1]
 					ch <- item
 					continue
@@ -75,8 +94,13 @@ func (c *Client) GetMulti(keys []string, o ...MgOption) (_ map[string]*Item, ret
 	}
 	items := make(map[string]*Item)
 	for _, ch := range chs {
-		for item := range ch {
-			items[item.Key] = item
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+			for item := range ch {
+				items[item.Key] = item
+			}
 		}
 	}
 	return items, nil

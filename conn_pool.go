@@ -1,6 +1,7 @@
 package mc
 
 import (
+	"sync"
 	"time"
 )
 
@@ -25,13 +26,16 @@ type pool struct {
 	idle            map[string]chan *conn
 	dialTimeout     time.Duration
 	connMaxLifetime time.Duration
+	closeOnce       sync.Once
 }
 
 func (p *pool) getConn(addr string) (conn *conn, err error) {
-	select {
-	case conn := <-p.idle[addr]:
-		return conn, nil
-	default:
+	if idleChan, exists := p.idle[addr]; exists {
+		select {
+		case conn := <-idleChan:
+			return conn, nil
+		default:
+		}
 	}
 	if conn, err = openConn(addr, p.dialTimeout); err != nil {
 		return nil, err
@@ -50,9 +54,27 @@ func (p *pool) condRelease(conn *conn, err error) {
 		conn.close()
 		return
 	}
-	select {
-	case p.idle[conn.name] <- conn:
-	default:
+
+	if idleChan, exists := p.idle[conn.name]; exists {
+		select {
+		case idleChan <- conn:
+		default:
+			conn.close()
+		}
+	} else {
 		conn.close()
 	}
+}
+
+func (p *pool) close() error {
+	var err error
+	p.closeOnce.Do(func() {
+		for _, ch := range p.idle {
+			close(ch)
+			for conn := range ch {
+				conn.close()
+			}
+		}
+	})
+	return err
 }

@@ -1,6 +1,7 @@
 package mc_test
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -14,7 +15,8 @@ func ExampleNew() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = memcache.Set(&mc.Item{
+	ctx := context.Background()
+	err = memcache.Set(ctx, &mc.Item{
 		Key:   "key",
 		Value: []byte("value"),
 		Flags: 42,
@@ -23,7 +25,7 @@ func ExampleNew() {
 		log.Fatal(err)
 	}
 
-	i, err := memcache.Get("key")
+	i, err := memcache.Get(ctx, "key")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -38,7 +40,8 @@ func ExampleNamespace() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = memcache.Set(&mc.Item{
+	ctx := context.Background()
+	err = memcache.Set(ctx, &mc.Item{
 		Key:   "key",
 		Value: []byte("value"),
 		Flags: 42,
@@ -47,15 +50,15 @@ func ExampleNamespace() {
 		log.Fatal(err)
 	}
 
-	i, err := memcache.Get("key")
+	i, err := memcache.Get(ctx, "key")
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Printf("key=%q, value=%q\n", i.Key, i.Value)
 
-	memcache.PurgeNamespace("namespace")
+	memcache.PurgeNamespace(ctx, "namespace")
 
-	if _, err = memcache.Get("key"); err == nil {
+	if _, err = memcache.Get(ctx, "key"); err == nil {
 		log.Fatal("ns bug")
 	}
 	fmt.Println(err)

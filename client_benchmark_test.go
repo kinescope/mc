@@ -2,6 +2,7 @@ package mc_test
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/bradfitz/gomemcache/memcache"
@@ -9,6 +10,7 @@ import (
 )
 
 func BenchmarkParallel(b *testing.B) {
+	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs:                    testServerAddrs,
 		DisableBinaryEncodedKeys: true,
@@ -24,7 +26,7 @@ func BenchmarkParallel(b *testing.B) {
 			k = randSeq(16)
 			v = randSeq(24)
 		)
-		err = cache.Set(&mc.Item{
+		err = cache.Set(ctx, &mc.Item{
 			Key:   k,
 			Value: []byte(v),
 		})
@@ -32,7 +34,7 @@ func BenchmarkParallel(b *testing.B) {
 			b.Fatal(err)
 		}
 		for pb.Next() {
-			i, err := cache.Get(k)
+			i, err := cache.Get(ctx, k)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -44,6 +46,7 @@ func BenchmarkParallel(b *testing.B) {
 }
 
 func BenchmarkParallelMulti(b *testing.B) {
+	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs:                    []string{"127.0.0.1:11211"},
 		DisableBinaryEncodedKeys: true,
@@ -59,7 +62,7 @@ func BenchmarkParallelMulti(b *testing.B) {
 			k = randSeq(16)
 			v = randSeq(24)
 		)
-		err = cache.Set(&mc.Item{
+		err = cache.Set(ctx, &mc.Item{
 			Key:   k,
 			Value: []byte(v),
 		})
@@ -67,7 +70,7 @@ func BenchmarkParallelMulti(b *testing.B) {
 			b.Fatal(err)
 		}
 		for pb.Next() {
-			i, err := cache.GetMulti([]string{k})
+			i, err := cache.GetMulti(ctx, []string{k})
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -79,6 +82,7 @@ func BenchmarkParallelMulti(b *testing.B) {
 }
 
 func BenchmarkGet(b *testing.B) {
+	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs:                    testServerAddrs,
 		DisableBinaryEncodedKeys: true,
@@ -87,7 +91,7 @@ func BenchmarkGet(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	cache.Set(&mc.Item{
+	cache.Set(ctx, &mc.Item{
 		Key:   "benchmark_get",
 		Value: []byte("benchmark"),
 	})
@@ -96,13 +100,14 @@ func BenchmarkGet(b *testing.B) {
 	b.ResetTimer()
 
 	for range b.N {
-		if _, err := cache.Get("benchmark_get"); err != nil {
+		if _, err := cache.Get(ctx, "benchmark_get"); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
 func BenchmarkGetMulti(b *testing.B) {
+	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
 		Addrs:                    testServerAddrs,
 		DisableBinaryEncodedKeys: true,
@@ -111,7 +116,7 @@ func BenchmarkGetMulti(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	cache.Set(&mc.Item{
+	cache.Set(ctx, &mc.Item{
 		Key:   "benchmark_get",
 		Value: []byte("benchmark"),
 	})
@@ -120,7 +125,7 @@ func BenchmarkGetMulti(b *testing.B) {
 	b.ResetTimer()
 
 	for range b.N {
-		if _, err := cache.GetMulti([]string{"benchmark_get"}); err != nil {
+		if _, err := cache.GetMulti(ctx, []string{"benchmark_get"}); err != nil {
 			b.Fatal(err)
 		}
 	}

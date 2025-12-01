@@ -3,6 +3,7 @@ package mc
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"io"
 	"strconv"
 	"strings"
@@ -66,7 +67,7 @@ func (c *Client) makeGetCmd(key string, opt mgOpts) []byte {
 	return cmd
 }
 
-func parseGetResponse(c *Client, buff *bufio.ReadWriter) (*Item, error) {
+func parseGetResponse(ctx context.Context, c *Client, buff *bufio.ReadWriter) (*Item, error) {
 	line, err := buff.ReadString('\n')
 	if err != nil {
 		return nil, err
@@ -179,7 +180,7 @@ func parseGetResponse(c *Client, buff *bufio.ReadWriter) (*Item, error) {
 		}
 		item.Value = p.Data
 
-		ver, err := c.nsVersion(p.Namespace.Key, 0)
+		ver, err := c.nsVersion(ctx, p.Namespace.Key, 0)
 		if err != nil {
 			return nil, err
 		}

@@ -1,12 +1,24 @@
 package mc
 
-import "strconv"
+import (
+	"context"
+	"strconv"
+	"time"
+)
 
-func (c *Client) Del(k string, o ...MdOption) (retErr error) {
+func (c *Client) Del(ctx context.Context, k string, o ...MdOption) (retErr error) {
 	var opts mdOpts
 	for _, fn := range o {
 		fn(&opts)
 	}
+
+	// Check context before operations
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	key, err := c.encodeKey(k)
 	if err != nil {
 		return err
@@ -18,6 +30,18 @@ func (c *Client) Del(k string, o ...MdOption) (retErr error) {
 	}
 
 	defer c.pool.condRelease(conn, retErr)
+
+	// Use minimum of opts.deadline and context.Deadline() if both are set
+	deadline := opts.deadline
+	if ctxDeadline, ok := ctx.Deadline(); ok {
+		if deadline.IsZero() || ctxDeadline.Before(deadline) {
+			deadline = ctxDeadline
+		}
+	}
+	if !deadline.IsZero() {
+		conn.nc.SetDeadline(deadline)
+		defer conn.nc.SetDeadline(time.Time{})
+	}
 
 	cmd := []byte("md " + key)
 	if !c.opts.DisableBinaryEncodedKeys {
