@@ -6,51 +6,24 @@
 
 A high-performance memcache client library for Go that uses memcache's [Meta Text Protocol](https://docs.memcached.org/protocols/meta) and supports namespacing, compression, and context cancellation out of the box.
 
-## What is Meta Text Protocol?
+## Table of Contents
 
-The Meta Text Protocol is a modern, efficient protocol for memcached that solves several problems with the traditional ASCII protocol:
-
-### Problems Solved by Meta Protocol
-
-1. **Reduced Network Overhead**: The meta protocol uses a more compact command format, reducing the number of round trips and bytes transferred over the network.
-
-2. **Atomic Operations**: Provides atomic operations like append, prepend, and replace that were previously difficult to implement efficiently with the ASCII protocol.
-
-3. **Rich Metadata**: Returns additional metadata (CAS values, flags, TTL, last access time, hit status) in a single request without requiring separate commands.
-
-4. **Conditional Operations**: Supports conditional operations like Compare-and-Swap (CAS) for optimistic locking, preventing race conditions in concurrent applications.
-
-5. **Efficient Multi-Get**: The `mn` command allows fetching multiple keys efficiently in a single request, reducing latency for batch operations.
-
-6. **Early Recaching**: Built-in support for early recaching, allowing clients to refresh cache entries before they expire, reducing cache stampede problems.
-
-7. **Binary Key Support**: Native support for binary-encoded keys, enabling more efficient key storage and retrieval.
-
-8. **Opaque Values**: Supports opaque values that are echoed back with responses, useful for correlating requests and responses in asynchronous operations.
-
-9. **Flexible Expiration**: More flexible expiration handling with support for updating TTL without retrieving the value.
-
-10. **Better Error Handling**: More detailed error responses and status codes for better debugging and error handling.
-
-11. **Hot Key Detection**: Built-in hit tracking and last access time for identifying frequently accessed cache keys.
-
-12. **Stale Data Serving**: Ability to serve stale data when items expire, preventing cache misses during refresh.
-
-13. **Request Correlation**: Opaque values for correlating requests and responses in pipelined and async operations.
-
-### How This Library Uses Meta Protocol
-
-This library fully leverages the Meta Text Protocol to provide:
-
-- **Efficient Operations**: All operations use meta protocol commands (`mg` for get, `ms` for set, `ma` for arithmetic, `md` for delete)
-- **Atomic Append/Prepend**: Safe string concatenation operations without race conditions
-- **Optimistic Locking**: CAS operations for safe concurrent updates
-- **Batch Operations**: Efficient multi-key retrieval with `GetMulti`
-- **Metadata Access**: Easy access to CAS values, flags, TTL, and other metadata
-- **Early Recaching**: Built-in support for preventing cache stampedes
-- **Hot Key Management**: Hit tracking and last access time for identifying and managing hot cache keys
-- **Stale Data Serving**: Serve expired data to prevent cache misses during refresh
-- **Request Correlation**: Opaque values for async and pipelined operations
+- [Features](#features)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Basic Operations](#basic-operations)
+- [Advanced Features](#advanced-features)
+  - [Cache Management](#cache-management)
+  - [Concurrency & Consistency](#concurrency--consistency)
+  - [Performance Optimization](#performance-optimization)
+- [Configuration](#configuration)
+- [Error Handling](#error-handling)
+- [Meta Text Protocol](#meta-text-protocol)
+- [Development](#development)
+- [Examples](#examples)
+- [Contributing](#contributing)
+- [License](#license)
+- [References](#references)
 
 ## Features
 
@@ -61,6 +34,9 @@ This library fully leverages the Meta Text Protocol to provide:
 - ✅ **Connection Pooling** - Efficient connection pooling with automatic management
 - ✅ **Binary Key Encoding** - Optional binary key encoding for better performance
 - ✅ **Type Safety** - Strong typing with comprehensive error handling
+- ✅ **Atomic Operations** - Safe append, prepend, and replace operations
+- ✅ **Optimistic Locking** - CAS (Compare-And-Swap) for concurrent updates
+- ✅ **Batch Operations** - Efficient multi-key retrieval with `GetMulti`
 
 ## Installation
 
@@ -172,22 +148,6 @@ err := client.Append(ctx, &mc.Item{
 }, mc.WithExpiration(3600)) // Create with 1 hour TTL if missing
 ```
 
-### Compare-and-Swap (Optimistic Locking)
-
-```go
-// Get item with CAS value
-item, err := client.Get(ctx, "key", mc.WithCAS())
-if err == nil {
-	// Modify the value
-	item.Value = []byte("new value")
-	// Update only if CAS matches (no concurrent modification)
-	err = client.CompareAndSwap(ctx, item)
-	if err == mc.ErrCASConflict {
-		// Another client modified the item, retry
-	}
-}
-```
-
 ### Increment and Decrement
 
 ```go
@@ -210,7 +170,9 @@ for key, item := range items {
 
 ## Advanced Features
 
-### Namespacing
+### Cache Management
+
+#### Namespacing
 
 Namespacing allows you to invalidate all cache entries for a namespace with a single operation. This is useful for cache invalidation by user, tenant, or any logical grouping.
 
@@ -236,7 +198,7 @@ err = client.PurgeNamespace(ctx, "user:"+userID)
 
 For more information, see the [memcache namespacing documentation](https://github.com/memcached/memcached/wiki/ProgrammingTricks#namespacing).
 
-### Compression
+#### Compression
 
 Enable compression for values larger than a specified threshold:
 
@@ -262,6 +224,124 @@ client, err := mc.New(&mc.Options{
 })
 ```
 
+#### Min Uses
+
+Require an item to be set a minimum number of times before it can be retrieved:
+
+```go
+// Set with min uses
+err := client.Set(ctx, &mc.Item{
+	Key:   "key",
+	Value: []byte("value"),
+}, mc.WithMinUses(3))
+
+// First 2 Get calls will return ErrCacheMiss
+// After 3rd Set, Get will succeed
+```
+
+### Concurrency & Consistency
+
+#### Compare-and-Swap (Optimistic Locking)
+
+Use CAS for safe concurrent updates:
+
+```go
+// Get item with CAS value
+item, err := client.Get(ctx, "key", mc.WithCAS())
+if err == nil {
+	// Modify the value
+	item.Value = []byte("new value")
+	// Update only if CAS matches (no concurrent modification)
+	err = client.CompareAndSwap(ctx, item)
+	if err == mc.ErrCASConflict {
+		// Another client modified the item, retry
+	}
+}
+```
+
+#### CAS Override
+
+For forced updates, use `Set` instead of `CompareAndSwap`:
+
+```go
+// Set bypasses CAS check for forced updates
+err := client.Set(ctx, &mc.Item{
+	Key:   "key",
+	Value: []byte("forced value"),
+}, mc.WithExpiration(3600))
+```
+
+### Performance Optimization
+
+#### Early Recache & Stampeding Herd Prevention
+
+Prevent cache stampede using early recache:
+
+```go
+item, err := client.Get(ctx, "key", mc.WithEarlyRecache(60))
+if item.Won() {
+	// This client won the recache - refresh in background
+	go refreshCache(ctx, client, "key")
+} else {
+	// Other clients get cached data immediately
+	useCachedData(item.Value)
+}
+```
+
+#### Serve Stale Data
+
+Serve stale data when items have expired to prevent cache misses:
+
+```go
+item, err := client.Get(ctx, "key", mc.WithEarlyRecache(60))
+if item.Stale() {
+	// Serve stale data while refreshing in background
+	if item.Won() {
+		go refreshCache(ctx, client, "key")
+	}
+	useData(item.Value)
+}
+```
+
+#### Hot Key Detection & Cache Invalidation
+
+Identify and manage frequently accessed (hot) cache keys:
+
+```go
+// Track hot keys using hit status and last access time
+item, err := client.Get(ctx, "key", mc.WithHit(), mc.WithLastAccess())
+if item.Hit() && item.LastAccess() < 10 {
+	// Key is hot - invalidate to force refresh
+	client.Del(ctx, "key")
+	// Re-populate with fresh data
+	client.Set(ctx, &mc.Item{
+		Key:   "key",
+		Value: freshData,
+	}, mc.WithExpiration(3600))
+}
+```
+
+#### Last Access Time
+
+Get the time since last access for cache optimization:
+
+```go
+item, err := client.Get(ctx, "key", mc.WithLastAccess())
+fmt.Printf("Last accessed %d seconds ago\n", item.LastAccess())
+```
+
+#### Hit Tracking
+
+Track hit status to identify frequently accessed items:
+
+```go
+item, err := client.Get(ctx, "key", mc.WithHit())
+if item.Hit() {
+	// Key has been accessed before - consider it hot
+	// Extend TTL, pre-warm, or monitor for optimization
+}
+```
+
 ### Context and Timeouts
 
 All operations support `context.Context` for cancellation and timeouts:
@@ -285,116 +365,6 @@ go func() {
 	cancel() // Cancel the operation
 }()
 item, err := client.Get(ctx, "key")
-```
-
-### Min Uses
-
-Require an item to be set a minimum number of times before it can be retrieved:
-
-```go
-// Set with min uses
-err := client.Set(ctx, &mc.Item{
-	Key:   "key",
-	Value: []byte("value"),
-}, mc.WithMinUses(3))
-
-// First 2 Get calls will return ErrCacheMiss
-// After 3rd Set, Get will succeed
-```
-
-### Early Recache
-
-Enable early recaching to refresh items before they expire:
-
-```go
-item, err := client.Get(ctx, "key", mc.WithEarlyRecache(60))
-if item.Won() {
-	// This client "won" the recache, should refresh the value
-}
-```
-
-### Last Access Time
-
-Get the time since last access:
-
-```go
-item, err := client.Get(ctx, "key", mc.WithLastAccess())
-fmt.Printf("Last accessed %d seconds ago\n", item.LastAccess())
-```
-
-### Hot Key Cache Invalidation
-
-Identify and invalidate frequently accessed (hot) cache keys:
-
-```go
-// Track hot keys using hit status and last access time
-item, err := client.Get(ctx, "key", mc.WithHit(), mc.WithLastAccess())
-if item.Hit() && item.LastAccess() < 10 {
-    // Key is hot - invalidate to force refresh
-    client.Del(ctx, "key")
-    // Re-populate with fresh data
-    client.Set(ctx, &mc.Item{
-        Key:   "key",
-        Value: freshData,
-    }, mc.WithExpiration(3600))
-}
-```
-
-### Stampeding Herd Prevention
-
-Prevent cache stampede using early recache:
-
-```go
-item, err := client.Get(ctx, "key", mc.WithEarlyRecache(60))
-if item.Won() {
-    // This client won the recache - refresh in background
-    go refreshCache(ctx, client, "key")
-} else {
-    // Other clients get cached data immediately
-    useCachedData(item.Value)
-}
-```
-
-### Serve Stale Data
-
-Serve stale data when items have expired to prevent cache misses:
-
-```go
-item, err := client.Get(ctx, "key", mc.WithEarlyRecache(60))
-if item.Stale() {
-    // Serve stale data while refreshing in background
-    if item.Won() {
-        go refreshCache(ctx, client, "key")
-    }
-    useData(item.Value)
-}
-```
-
-### CAS for Data Consistency
-
-Use Compare-and-Swap for optimistic locking:
-
-```go
-item, err := client.Get(ctx, "key", mc.WithCAS())
-if err == nil {
-    item.Value = newValue
-    err = client.CompareAndSwap(ctx, item)
-    if err == mc.ErrCASConflict {
-        // Retry with fresh CAS value
-    }
-}
-```
-
-### Probabilistic Hot Cache
-
-Track hit status to identify frequently accessed items:
-
-```go
-item, err := client.Get(ctx, "key", mc.WithHit())
-if item.Hit() {
-    // Key has been accessed before - consider it hot
-    // Extend TTL, pre-warm, or monitor for optimization
-}
 ```
 
 ## Configuration
@@ -466,6 +436,33 @@ client, err := mc.New(&mc.Options{
 defer client.Close() // Closes all connections in the pool
 ```
 
+## Meta Text Protocol
+
+This library uses memcache's [Meta Text Protocol](https://docs.memcached.org/protocols/meta), a modern, efficient protocol that solves several problems with the traditional ASCII protocol:
+
+### Key Advantages
+
+1. **Reduced Network Overhead** - More compact command format, fewer round trips
+2. **Atomic Operations** - Safe append, prepend, and replace operations
+3. **Rich Metadata** - CAS values, flags, TTL, last access time, hit status in a single request
+4. **Conditional Operations** - Compare-and-Swap (CAS) for optimistic locking
+5. **Efficient Multi-Get** - Batch key retrieval with the `mn` command
+6. **Early Recaching** - Built-in support for preventing cache stampedes
+7. **Binary Key Support** - Efficient binary-encoded keys
+8. **Opaque Values** - Request/response correlation for async operations
+9. **Flexible Expiration** - Update TTL without retrieving the value
+10. **Better Error Handling** - Detailed error responses and status codes
+11. **Hot Key Detection** - Hit tracking and last access time
+12. **Stale Data Serving** - Serve expired data to prevent cache misses
+
+### Protocol Commands Used
+
+- `mg` - Meta Get (retrieve items)
+- `ms` - Meta Set (store items)
+- `ma` - Meta Arithmetic (increment/decrement)
+- `md` - Meta Delete (delete items)
+- `mn` - Meta No-op (end of multi-get batch)
+
 ## Development
 
 ### Running Tests
@@ -505,7 +502,19 @@ make proto
 
 ## Examples
 
-See the [`example_test.go`](example_test.go) file for more examples.
+See the [`example_test.go`](example_test.go) file for comprehensive examples including:
+
+- Basic operations (Set, Get, Delete, Add, Replace, Append, Prepend)
+- Compare-and-Swap operations
+- Increment/Decrement with initial values
+- Multi-key retrieval
+- Namespace management
+- Compression
+- Early recache and stampeding herd prevention
+- Serve stale data
+- Hot key cache invalidation
+- CAS consistency patterns
+- Context and timeout handling
 
 ## Contributing
 
