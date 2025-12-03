@@ -6,9 +6,18 @@ import (
 	"time"
 )
 
+// Inc increments a numeric value stored at the given key by delta.
+// If the key doesn't exist, it can be created with an initial value
+// using WithInitialValue(). Returns the new value after increment.
+// The value must be numeric (stored as a string representation of a number).
 func (c *Client) Inc(ctx context.Context, k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, _ error) {
 	return c.arithmetic(ctx, "M+", k, delta, expiration, o...)
 }
+
+// Dec decrements a numeric value stored at the given key by delta.
+// If the key doesn't exist, it can be created with an initial value
+// using WithInitialValue(). Returns the new value after decrement.
+// The value must be numeric (stored as a string representation of a number).
 func (c *Client) Dec(ctx context.Context, k string, delta uint64, expiration uint32, o ...MaOption) (new uint64, _ error) {
 	return c.arithmetic(ctx, "M-", k, delta, expiration, o...)
 }

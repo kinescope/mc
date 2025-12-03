@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+// GetMulti retrieves multiple items from the cache in a single operation.
+// Keys are distributed across servers based on the PickServer function,
+// and requests to the same server are batched together for efficiency.
+// Returns a map of found items (keys that don't exist are not included).
+// This is more efficient than multiple Get() calls, especially when
+// keys are on different servers.
 func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ map[string]*Item, retErr error) {
 	keyNum := make(map[string]int)
 	keyMap := make(map[string][]string)

@@ -16,6 +16,11 @@ const (
 	serialized = 4
 )
 
+// New creates a new memcache client with the provided options.
+// It initializes connection pools for each server address and sets up
+// key encoding based on the configuration.
+// Returns an error if no servers are provided or if server selection
+// function setup fails.
 func New(opts *Options) (*Client, error) {
 	opts.setDefaults()
 	if len(opts.Addrs) == 0 {
@@ -52,6 +57,10 @@ type Client struct {
 	encodeKey func(string) (string, error)
 }
 
+// PurgeNamespace invalidates all cache entries for the given namespace.
+// This is done by incrementing the namespace version, which causes all
+// items stored with that namespace to become invalid on the next access.
+// This is useful for cache invalidation by user, tenant, or any logical grouping.
 func (c *Client) PurgeNamespace(ctx context.Context, ns string) error {
 	if _, err := c.nsVersion(ctx, ns, 1); err != nil {
 		return err

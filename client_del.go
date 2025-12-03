@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+// Del deletes an item from the cache by its key.
+// Returns ErrCacheMiss if the key doesn't exist.
+// Supports WithInvalidate() to mark the item as stale instead of deleting it,
+// which allows serving stale data while refreshing.
 func (c *Client) Del(ctx context.Context, k string, o ...MdOption) (retErr error) {
 	var opts mdOpts
 	for _, fn := range o {

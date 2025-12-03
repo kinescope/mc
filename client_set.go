@@ -8,16 +8,44 @@ import (
 	"github.com/kinescope/mc/proto/cache"
 )
 
+// Add stores an item only if the key doesn't already exist.
+// If the key exists, it returns ErrNotStored.
+// This is useful for initializing cache entries or implementing
+// distributed locks.
 func (c *Client) Add(ctx context.Context, i *Item, o ...MsOption) error {
 	return c.populateOne(ctx, "E", i, 0, o...)
 }
 
+// Set stores an item, overwriting any existing value for the key.
+// This is the most common operation for storing cache entries.
 func (c *Client) Set(ctx context.Context, i *Item, o ...MsOption) error {
 	return c.populateOne(ctx, "S", i, 0, o...)
 }
 
+// CompareAndSwap updates an item only if its CAS (Compare-And-Swap) value
+// matches the CAS value stored in the item. This provides optimistic locking
+// to prevent race conditions in concurrent applications.
+// Returns ErrCASConflict if the CAS value doesn't match (item was modified
+// by another client).
+// The item must be retrieved with WithCAS() to get the CAS value.
 func (c *Client) CompareAndSwap(ctx context.Context, i *Item, o ...MsOption) error {
 	return c.populateOne(ctx, "S", i, i.cas, o...)
+}
+
+// Append appends data to an existing item. If the item doesn't exist and WithExpiration
+// is provided, the item will be created with that TTL (autovivify). Otherwise returns ErrNotStored.
+func (c *Client) Append(ctx context.Context, i *Item, o ...MsOption) error {
+	return c.populateOne(ctx, "A", i, 0, o...)
+}
+
+// Prepend prepends data to an existing item. If the item doesn't exist, it returns ErrNotStored.
+func (c *Client) Prepend(ctx context.Context, i *Item, o ...MsOption) error {
+	return c.populateOne(ctx, "P", i, 0, o...)
+}
+
+// Replace replaces an existing item. If the item doesn't exist, it returns ErrNotStored.
+func (c *Client) Replace(ctx context.Context, i *Item, o ...MsOption) error {
+	return c.populateOne(ctx, "R", i, 0, o...)
 }
 
 /*
@@ -78,7 +106,7 @@ func (c *Client) populateOne(ctx context.Context, mode string, i *Item, cas uint
 		return err
 	}
 	defer c.pool.condRelease(conn, retErr)
-	
+
 	// Use minimum of opts.deadline and context.Deadline() if both are set
 	deadline := opts.deadline
 	if ctxDeadline, ok := ctx.Deadline(); ok {
@@ -127,6 +155,11 @@ func (c *Client) populateOne(ctx context.Context, mode string, i *Item, cas uint
 	if opts.expiration != 0 {
 		cmd = append(cmd, ' ', 'T')
 		cmd = strconv.AppendUint(cmd, uint64(opts.expiration), 10)
+		// For append/prepend operations, use expiration as autovivify TTL
+		if mode == "A" || mode == "P" {
+			cmd = append(cmd, ' ', 'N')
+			cmd = strconv.AppendUint(cmd, uint64(opts.expiration), 10)
+		}
 	}
 
 	if i.Flags != 0 || flags != 0 {

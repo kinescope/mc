@@ -5,6 +5,10 @@ import (
 	"time"
 )
 
+// Get retrieves an item from the cache by its key.
+// Returns ErrCacheMiss if the key doesn't exist.
+// Supports various options like WithCAS(), WithEarlyRecache(), WithHit(),
+// and WithLastAccess() to get additional metadata or modify behavior.
 func (c *Client) Get(ctx context.Context, k string, o ...MgOption) (_ *Item, retErr error) {
 	var (
 		opt      mgOpts
