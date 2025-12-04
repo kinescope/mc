@@ -61,7 +61,7 @@ func (c *Client) makeGetCmd(key string, opt mgOpts) []byte {
 	}
 
 	if !c.opts.DisableBinaryEncodedKeys {
-		cmd = append(cmd, []byte(" b")...)
+		cmd = append(cmd, ' ', 'b')
 	}
 
 	return cmd

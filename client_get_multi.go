@@ -13,7 +13,11 @@ import (
 // This is more efficient than multiple Get() calls, especially when
 // keys are on different servers.
 func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ map[string]*Item, retErr error) {
-	keyNum := make(map[string]int)
+	if len(keys) == 0 {
+		return make(map[string]*Item), nil
+	}
+
+	keyNum := make(map[string]int, len(keys))
 	keyMap := make(map[string][]string)
 	for n, k := range keys {
 		key, err := c.encodeKey(k)
@@ -24,7 +28,8 @@ func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ 
 		if len(addrs) == 0 {
 			return nil, ErrNoServers
 		}
-		keyNum[key] = n + 1
+		opaque := n + 1
+		keyNum[key] = opaque
 		keyMap[addrs[0]] = append(keyMap[addrs[0]], key)
 	}
 
@@ -47,13 +52,13 @@ func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ 
 	for addr, items := range keyMap {
 		ch := make(chan *Item)
 		chs = append(chs, ch)
-		go func(addr string, items []string, ch chan *Item) (goErr error) {
+		go func(addr string, items []string, ch chan *Item, keyNumMap map[string]int, allKeys []string) {
 			defer close(ch)
-			// Создать локальную копию opt для этой горутины
 			localOpt := opt
+
 			conn, err := c.pool.getConn(addr)
 			if err != nil {
-				return nil
+				return
 			}
 			if !deadline.IsZero() {
 				conn.nc.SetDeadline(deadline)
@@ -62,53 +67,59 @@ func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ 
 				if !deadline.IsZero() {
 					conn.nc.SetDeadline(time.Time{})
 				}
-				c.pool.condRelease(conn, goErr)
+				c.pool.condRelease(conn, err)
 			}()
 
 			// Check context before operations
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return
 			default:
 			}
 
+			// Send all mg commands
 			for _, key := range items {
-				localOpt.opaque = keyNum[key]
-				conn.buff.Write(append(c.makeGetCmd(key, localOpt), crlf...))
+				localOpt.opaque = keyNumMap[key]
+				cmd := c.makeGetCmd(key, localOpt)
+				conn.buff.Write(cmd)
+				conn.buff.Write(crlf)
 			}
 
-			conn.buff.Write([]byte("mn\r\n"))
+			// Send mn command to signal end of batch
+			conn.buff.WriteString("mn\r\n")
 			if err := conn.buff.Flush(); err != nil {
-				return err
+				return
 			}
 
+			// Read responses until we get "MN" (end of multi-get)
 			var item *Item
-			for range len(items) + 1 {
+			for {
 				if item, err = parseGetResponse(ctx, c, conn.buff); err == nil {
-					item.Key = keys[item.opaque-1]
-					ch <- item
+					// Restore original key using opaque value
+					if item.opaque > 0 && item.opaque <= len(allKeys) {
+						item.Key = allKeys[item.opaque-1]
+						ch <- item
+					}
 					continue
 				}
-				if !errors.Is(err, ErrCacheMiss) {
-					return err
+				// Check for end of multi-get (MN response)
+				if errors.Is(err, errMnDone) {
+					break
 				}
+				// ErrCacheMiss is expected for non-existent keys
+				if errors.Is(err, ErrCacheMiss) {
+					continue
+				}
+				// Any other error is unexpected, stop reading
+				return
 			}
-
-			return nil
-
-		}(addr, items, ch)
+		}(addr, items, ch, keyNum, keys)
 	}
-	items := make(map[string]*Item)
+	items := make(map[string]*Item, len(keys))
 	for _, ch := range chs {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-			for item := range ch {
-				items[item.Key] = item
-			}
+		for item := range ch {
+			items[item.Key] = item
 		}
 	}
 	return items, nil
-
 }

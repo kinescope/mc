@@ -61,7 +61,7 @@ func (c *Client) arithmetic(ctx context.Context, op, k string, delta uint64, exp
 	cmd = strconv.AppendUint(cmd, delta, 10)
 
 	if opts.initialValue != nil {
-		cmd = append(cmd, []byte(" N0 J")...)
+		cmd = append(cmd, ' ', 'N', '0', ' ', 'J')
 		cmd = strconv.AppendUint(cmd, *opts.initialValue, 10)
 	}
 
@@ -74,7 +74,8 @@ func (c *Client) arithmetic(ctx context.Context, op, k string, delta uint64, exp
 		cmd = append(cmd, ' ', 'b')
 	}
 
-	conn.buff.Write(append(cmd, crlf...))
+	conn.buff.Write(cmd)
+	conn.buff.Write(crlf)
 
 	if err := conn.buff.Flush(); err != nil {
 		return 0, err

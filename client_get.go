@@ -53,7 +53,9 @@ func (c *Client) Get(ctx context.Context, k string, o ...MgOption) (_ *Item, ret
 	default:
 	}
 
-	conn.buff.Write(append(c.makeGetCmd(key, opt), crlf...))
+	cmd := c.makeGetCmd(key, opt)
+	conn.buff.Write(cmd)
+	conn.buff.Write(crlf)
 
 	if err := conn.buff.Flush(); err != nil {
 		return nil, err

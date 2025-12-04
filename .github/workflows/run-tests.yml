@@ -14,9 +14,8 @@ jobs:
       max-parallel: 1
       matrix:
         go:
+          - "1.25"
           - "1.24"
-          - "1.23"
-          - "1.22"
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies

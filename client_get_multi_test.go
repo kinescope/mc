@@ -10,9 +10,15 @@ import (
 )
 
 func TestGetMulti(t *testing.T) {
+	// Use only available servers from testServerAddrs
+	availableAddrs := checkAvailableServers(t, testServerAddrs)
+	if len(availableAddrs) == 0 {
+		t.Skip("No available servers")
+	}
+
 	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
-		Addrs: testServerAddrs,
+		Addrs: availableAddrs,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -44,9 +50,15 @@ func TestGetMulti(t *testing.T) {
 }
 
 func TestGetMultiDisableBinaryEncodedKeys(t *testing.T) {
+	// Use only available servers from testServerAddrs
+	availableAddrs := checkAvailableServers(t, testServerAddrs)
+	if len(availableAddrs) == 0 {
+		t.Skip("No available servers")
+	}
+
 	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
-		Addrs:                    testServerAddrs,
+		Addrs:                    availableAddrs,
 		DisableBinaryEncodedKeys: true,
 	})
 	if err != nil {
@@ -79,9 +91,15 @@ func TestGetMultiDisableBinaryEncodedKeys(t *testing.T) {
 }
 
 func TestGetMultiNamespace(t *testing.T) {
+	// Use only available servers from testServerAddrs
+	availableAddrs := checkAvailableServers(t, testServerAddrs)
+	if len(availableAddrs) == 0 {
+		t.Skip("No available servers")
+	}
+
 	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
-		Addrs: testServerAddrs,
+		Addrs: availableAddrs,
 	})
 	if err != nil {
 		t.Fatal(err)

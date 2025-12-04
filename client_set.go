@@ -152,7 +152,8 @@ func (c *Client) populateOne(ctx context.Context, mode string, i *Item, cas uint
 
 	cmd := []byte("ms " + key + " ")
 	cmd = strconv.AppendInt(cmd, int64(len(i.Value)), 10)
-	cmd = append(append(cmd, ' ', 'M'), []byte(mode)...)
+	cmd = append(cmd, ' ', 'M')
+	cmd = append(cmd, mode...)
 	if opts.expiration != 0 {
 		cmd = append(cmd, ' ', 'T')
 		cmd = strconv.AppendUint(cmd, uint64(opts.expiration), 10)
@@ -180,8 +181,10 @@ func (c *Client) populateOne(ctx context.Context, mode string, i *Item, cas uint
 		cmd = strconv.AppendUint(cmd, cas, 10)
 	}
 
-	conn.buff.Write(append(cmd, crlf...))
-	conn.buff.Write(append(i.Value, crlf...))
+	conn.buff.Write(cmd)
+	conn.buff.Write(crlf)
+	conn.buff.Write(i.Value)
+	conn.buff.Write(crlf)
 
 	if err := conn.buff.Flush(); err != nil {
 		return err

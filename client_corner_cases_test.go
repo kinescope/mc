@@ -196,9 +196,15 @@ func TestOperationsAfterClose(t *testing.T) {
 
 // TestGetMultiEmptyKeys tests GetMulti with empty key list
 func TestGetMultiEmptyKeys(t *testing.T) {
+	// Use only available servers from testServerAddrs
+	availableAddrs := checkAvailableServers(t, testServerAddrs)
+	if len(availableAddrs) == 0 {
+		t.Skip("No available servers")
+	}
+
 	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
-		Addrs: testServerAddrs,
+		Addrs: availableAddrs,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -211,9 +217,15 @@ func TestGetMultiEmptyKeys(t *testing.T) {
 
 // TestGetMultiNonExistentKeys tests GetMulti with non-existent keys
 func TestGetMultiNonExistentKeys(t *testing.T) {
+	// Use only available servers from testServerAddrs
+	availableAddrs := checkAvailableServers(t, testServerAddrs)
+	if len(availableAddrs) == 0 {
+		t.Skip("No available servers")
+	}
+
 	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
-		Addrs: testServerAddrs,
+		Addrs: availableAddrs,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -227,9 +239,15 @@ func TestGetMultiNonExistentKeys(t *testing.T) {
 
 // TestGetMultiMixedKeys tests GetMulti with mix of existing and non-existent keys
 func TestGetMultiMixedKeys(t *testing.T) {
+	// Use only available servers from testServerAddrs
+	availableAddrs := checkAvailableServers(t, testServerAddrs)
+	if len(availableAddrs) == 0 {
+		t.Skip("No available servers")
+	}
+
 	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
-		Addrs: testServerAddrs,
+		Addrs: availableAddrs,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -239,22 +257,53 @@ func TestGetMultiMixedKeys(t *testing.T) {
 	k1, k2 := randSeq(6), randSeq(6)
 	v1, v2 := randSeq(6), randSeq(6)
 
-	cache.Set(ctx, &mc.Item{Key: k1, Value: []byte(v1)})
-	cache.Set(ctx, &mc.Item{Key: k2, Value: []byte(v2)})
+	err = cache.Set(ctx, &mc.Item{Key: k1, Value: []byte(v1)})
+	assert.NoError(t, err)
+	err = cache.Set(ctx, &mc.Item{Key: k2, Value: []byte(v2)})
+	assert.NoError(t, err)
 
 	keys := []string{k1, "nonexistent1", k2, "nonexistent2"}
+	expectedKeys := map[string]string{k1: v1, k2: v2}
+
 	items, err := cache.GetMulti(ctx, keys)
 	assert.NoError(t, err)
-	assert.Len(t, items, 2)
-	if item, ok := items[k1]; ok {
-		assert.Equal(t, v1, string(item.Value))
-	} else {
-		t.Errorf("Key %s not found in results", k1)
+	if !assert.Len(t, items, 2, "Expected 2 items, got %d", len(items)) {
+		// If GetMulti didn't return all expected keys, verify with individual Get requests
+		// to check if keys actually exist on servers
+		for k, expectedVal := range expectedKeys {
+			if _, found := items[k]; !found {
+				// Key missing from GetMulti, check with individual Get
+				item, err := cache.Get(ctx, k)
+				if err == nil && item != nil {
+					t.Errorf("Key %s exists on server (Get returned: %s) but was missing from GetMulti result. Expected: %s", k, string(item.Value), expectedVal)
+					// Add it to items for further verification
+					items[k] = item
+				} else if err != mc.ErrCacheMiss {
+					t.Errorf("Key %s: Get returned unexpected error: %v", k, err)
+				} else {
+					t.Logf("Key %s: confirmed missing on server (Get also returned ErrCacheMiss)", k)
+				}
+			}
+		}
+		// Verify the items we got are correct
+		for k, item := range items {
+			if expectedVal, ok := expectedKeys[k]; ok {
+				assert.Equal(t, expectedVal, string(item.Value), "Value mismatch for key %s", k)
+			}
+		}
+		return
 	}
-	if item, ok := items[k2]; ok {
-		assert.Equal(t, v2, string(item.Value))
-	} else {
-		t.Errorf("Key %s not found in results", k2)
+
+	// Verify all expected items were retrieved correctly
+	for k, expectedVal := range expectedKeys {
+		item, exists := items[k]
+		if !assert.True(t, exists, "Key %s should be in results", k) {
+			continue
+		}
+		if !assert.NotNil(t, item, "Item for key %s should not be nil", k) {
+			continue
+		}
+		assert.Equal(t, expectedVal, string(item.Value), "Value mismatch for key %s", k)
 	}
 }
 
@@ -813,9 +862,15 @@ func TestEarlyRecacheZero(t *testing.T) {
 
 // TestOpaqueValue tests opaque value in GetMulti
 func TestOpaqueValue(t *testing.T) {
+	// Use only available servers from testServerAddrs
+	availableAddrs := checkAvailableServers(t, testServerAddrs)
+	if len(availableAddrs) == 0 {
+		t.Skip("No available servers")
+	}
+
 	ctx := context.Background()
 	cache, err := mc.New(&mc.Options{
-		Addrs: testServerAddrs,
+		Addrs: availableAddrs,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -833,20 +888,8 @@ func TestOpaqueValue(t *testing.T) {
 		assert.NoError(t, err)
 	}
 
-	// Retry logic for race detector - sometimes keys may not be immediately available
-	var items map[string]*mc.Item
-	var lastErr error
-	for retry := 0; retry < 3; retry++ {
-		items, lastErr = cache.GetMulti(ctx, keys)
-		if lastErr == nil && len(items) == len(keys) {
-			break
-		}
-		if retry < 2 {
-			time.Sleep(10 * time.Millisecond)
-		}
-	}
-
-	assert.NoError(t, lastErr)
+	items, err := cache.GetMulti(ctx, keys)
+	assert.NoError(t, err)
 	if !assert.Len(t, items, len(keys), "Expected %d items, got %d", len(keys), len(items)) {
 		// If length doesn't match, at least verify the items we got are correct
 		for k, item := range items {
