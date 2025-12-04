@@ -219,7 +219,7 @@ You can also provide custom compression functions:
 
 ```go
 client, err := mc.New(&mc.Options{
-	Addrs: []string{"127.0.0.1:11211"},
+		Addrs: []string{"127.0.0.1:11211"},
 	Compression: struct {
 		Compress   func([]byte) ([]byte, error)
 		Decompress func([]byte) ([]byte, error)
@@ -360,7 +360,7 @@ ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 defer cancel()
 
 item, err := client.Get(ctx, "key")
-if err != nil {
+	if err != nil {
 	if err == context.DeadlineExceeded {
 		// Operation timed out
 	}

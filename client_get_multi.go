@@ -3,6 +3,7 @@ package mc
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 )
 
@@ -74,7 +75,7 @@ func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ 
 		}
 	}
 
-	// Build list of all encoded keys for broadcasting
+	// Build list of all encoded keys for broadcasting (in order)
 	allEncodedKeys := make([]string, 0, len(keys))
 	for _, k := range keys {
 		if encodedKey, exists := originalToEncoded[k]; exists {
@@ -82,8 +83,16 @@ func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ 
 		}
 	}
 
-	// Send all keys to each server
+	// Build sorted list of servers for deterministic iteration
+	serverList := make([]string, 0, len(allServers))
 	for addr := range allServers {
+		serverList = append(serverList, addr)
+	}
+	// Sort for deterministic order (important for Go 1.25+)
+	sort.Strings(serverList)
+
+	// Send all keys to each server
+	for _, addr := range serverList {
 		ch := make(chan *Item)
 		chs = append(chs, ch)
 		go func(addr string, ch chan *Item, keyNumMap map[string]int, allKeys []string, keyToValid map[string]map[string]bool, origToEncoded map[string]string, allEncodedKeys []string) {
