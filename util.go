@@ -4,9 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 
@@ -77,15 +75,9 @@ func (c *Client) makeGetCmd(key string, opt mgOpts) []byte {
 func parseGetResponse(ctx context.Context, c *Client, buff *bufio.ReadWriter) (*Item, error) {
 	line, err := buff.ReadString('\n')
 	if err != nil {
-		if os.Getenv("MC_DEBUG") == "1" {
-			fmt.Fprintf(os.Stderr, "[parseGetResponse DEBUG] ReadString error: %v\n", err)
-		}
 		return nil, err
 	}
 	line = strings.TrimSpace(line)
-	if os.Getenv("MC_DEBUG") == "1" && len(line) > 0 && !strings.HasPrefix(line, "VA ") && line != "MN" && !strings.HasPrefix(line, "EN") && !strings.HasPrefix(line, "NF") && !strings.HasPrefix(line, "CLIENT_ERROR") && !strings.HasPrefix(line, "SERVER_ERROR") {
-		fmt.Fprintf(os.Stderr, "[parseGetResponse DEBUG] Unexpected response line: %q (len=%d, bytes=%v)\n", line, len(line), []byte(line))
-	}
 
 	// Handle MN (end of multi-get)
 	if line == "MN" {
@@ -94,34 +86,8 @@ func parseGetResponse(ctx context.Context, c *Client, buff *bufio.ReadWriter) (*
 
 	// Handle EN/NF (not found) - can have parameters like "EN O1 kN8V5LuyRMRY= b"
 	if strings.HasPrefix(line, "EN") || strings.HasPrefix(line, "NF") {
-		// If it's just "EN" or "NF" without parameters, return cache miss
-		if line == "EN" || line == "NF" {
-			return nil, ErrCacheMiss
-		}
-		// If it has parameters (e.g., "EN O1 kN8V5LuyRMRY= b"), parse them for debug but still return cache miss
-		// This is an extended format where server returns opaque and key even for misses
-		if os.Getenv("MC_DEBUG") == "1" {
-			fields := strings.Fields(line)
-			var opaque int
-			var key string
-			for _, field := range fields[1:] {
-				if len(field) > 0 {
-					switch field[0] {
-					case 'O':
-						if len(field) > 1 {
-							opaque, _ = strconv.Atoi(field[1:])
-						}
-					case 'k':
-						if len(field) > 1 {
-							key = field[1:]
-						}
-					}
-				}
-			}
-			if opaque > 0 || key != "" {
-				fmt.Fprintf(os.Stderr, "[parseGetResponse DEBUG] EN/NF with params: opaque=%d, key=%q\n", opaque, key)
-			}
-		}
+		// Extended format where server returns opaque and key even for misses
+		// We ignore the parameters and return cache miss
 		return nil, ErrCacheMiss
 	}
 
@@ -147,10 +113,6 @@ func parseGetResponse(ctx context.Context, c *Client, buff *bufio.ReadWriter) (*
 	}
 
 	if !strings.HasPrefix(line, "VA ") {
-		// Debug: log unexpected response line
-		if os.Getenv("MC_DEBUG") == "1" {
-			fmt.Fprintf(os.Stderr, "[parseGetResponse DEBUG] Unexpected response line (not VA): %q (len=%d)\n", line, len(line))
-		}
 		return nil, ErrCorruptGetResultRead
 	}
 
@@ -215,22 +177,9 @@ func parseGetResponse(ctx context.Context, c *Client, buff *bufio.ReadWriter) (*
 	}
 
 	if _, err := io.ReadFull(buff, item.Value); err != nil {
-		// Debug: log read error
-		if os.Getenv("MC_DEBUG") == "1" {
-			fmt.Fprintf(os.Stderr, "[parseGetResponse DEBUG] ReadFull error: %v (expected size=%d)\n", err, size+2)
-		}
 		return nil, err
 	}
 	if !bytes.HasSuffix(item.Value, crlf) {
-		// Debug: log missing crlf
-		if os.Getenv("MC_DEBUG") == "1" {
-			previewLen := len(item.Value)
-			if previewLen > 50 {
-				previewLen = 50
-			}
-			fmt.Fprintf(os.Stderr, "[parseGetResponse DEBUG] Value does not end with crlf: %q (len=%d, expected=%d)\n",
-				string(item.Value[:previewLen]), len(item.Value), size+2)
-		}
 		return nil, ErrCorruptGetResultRead
 	}
 

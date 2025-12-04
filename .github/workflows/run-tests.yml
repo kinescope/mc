@@ -14,7 +14,7 @@ jobs:
       max-parallel: 1
       matrix:
         go:
-          #- "1.25"
+          - "1.25"
           - "1.24"
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +34,4 @@ jobs:
           go-version: ${{ matrix.go }}
 
       - name: Run tests
-        env:
-          MC_DEBUG: 1
         run: go test -v --count=1 .
