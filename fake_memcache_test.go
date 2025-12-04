@@ -248,12 +248,12 @@ func (s *fakeMemcacheServer) handleMetaSet(parts []string, reader *bufio.Reader,
 	}
 
 	var (
-		mode       = "S" // default set
-		expiration int64
-		flags      uint16
-		cas        uint64
-		binaryKey  bool
-		compareCAS bool
+		mode        = "S" // default set
+		expiration  int64
+		flags       uint16
+		cas         uint64
+		binaryKey   bool
+		compareCAS  bool
 	)
 
 	// Parse flags
@@ -428,6 +428,17 @@ func (s *fakeMemcacheServer) handleMetaDelete(parts []string, writer *bufio.Writ
 	writer.Flush()
 }
 
+// setKeyDirectly sets a key directly on a specific server (bypassing client)
+func (s *fakeMemcacheServer) setKeyDirectly(key, value string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data[key] = &cacheItem{
+		value:      []byte(value),
+		cas:        uint64(time.Now().UnixNano()),
+		lastAccess: time.Now().Unix(),
+	}
+}
+
 func (s *fakeMemcacheServer) Close() error {
 	s.closed = true
 	return s.listener.Close()
@@ -495,6 +506,411 @@ func TestGetMultiWithFakeServers(t *testing.T) {
 	}
 }
 
+// TestGetMultiKeyOnPrimaryServer tests that key on primary server is accepted
+func TestGetMultiKeyOnPrimaryServer(t *testing.T) {
+	servers, addrs := createFakeServers(t)
+	require.GreaterOrEqual(t, len(servers), 2, "need at least 2 servers")
+	defer func() {
+		for _, s := range servers {
+			s.Close()
+		}
+	}()
+
+	ctx := context.Background()
+	// Disable binary encoding for simpler testing
+	// Custom PickServer: key1 -> [server0, server1], key2 -> [server1, server0]
+	pickServer := func(key string) []string {
+		if key == "key1" || strings.Contains(key, "key1") {
+			return []string{addrs[0], addrs[1]}
+		}
+		if key == "key2" || strings.Contains(key, "key2") {
+			return []string{addrs[1], addrs[0]}
+		}
+		// Default: first server
+		return []string{addrs[0]}
+	}
+
+	client, err := mc.New(&mc.Options{
+		Addrs:                  addrs,
+		PickServer:             pickServer,
+		DisableBinaryEncodedKeys: true,
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Set key1 on primary server (server0)
+	servers[0].setKeyDirectly("key1", "value1")
+	// Set key2 on primary server (server1)
+	servers[1].setKeyDirectly("key2", "value2")
+
+	// GetMulti should find both keys
+	results, err := client.GetMulti(ctx, []string{"key1", "key2"})
+	require.NoError(t, err)
+
+	assert.Len(t, results, 2)
+	assert.Equal(t, "value1", string(results["key1"].Value))
+	assert.Equal(t, "value2", string(results["key2"].Value))
+}
+
+// TestGetMultiKeyOnAlternativeServer tests that key on alternative valid server is accepted
+func TestGetMultiKeyOnAlternativeServer(t *testing.T) {
+	servers, addrs := createFakeServers(t)
+	require.GreaterOrEqual(t, len(servers), 2, "need at least 2 servers")
+	defer func() {
+		for _, s := range servers {
+			s.Close()
+		}
+	}()
+
+	ctx := context.Background()
+	// Disable binary encoding for simpler testing
+	// Custom PickServer: key1 -> [server0, server1]
+	pickServer := func(key string) []string {
+		if key == "key1" || strings.Contains(key, "key1") {
+			return []string{addrs[0], addrs[1]}
+		}
+		return []string{addrs[0]}
+	}
+
+	client, err := mc.New(&mc.Options{
+		Addrs:                  addrs,
+		PickServer:             pickServer,
+		DisableBinaryEncodedKeys: true,
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Set key1 on alternative server (server1), NOT on primary (server0)
+	servers[1].setKeyDirectly("key1", "value1")
+
+	// GetMulti should find key1 on alternative server
+	results, err := client.GetMulti(ctx, []string{"key1"})
+	require.NoError(t, err)
+
+	assert.Len(t, results, 1)
+	assert.Equal(t, "value1", string(results["key1"].Value))
+}
+
+// TestGetMultiKeyOnInvalidServer tests that key on invalid server is rejected
+func TestGetMultiKeyOnInvalidServer(t *testing.T) {
+	servers, addrs := createFakeServers(t)
+	require.GreaterOrEqual(t, len(servers), 3, "need at least 3 servers")
+	defer func() {
+		for _, s := range servers {
+			s.Close()
+		}
+	}()
+
+	ctx := context.Background()
+	// Custom PickServer: key1 -> [server0, server1] (NOT server2)
+	pickServer := func(key string) []string {
+		if key == "key1" || strings.Contains(key, "key1") {
+			return []string{addrs[0], addrs[1]}
+		}
+		return []string{addrs[0]}
+	}
+
+	client, err := mc.New(&mc.Options{
+		Addrs:                  addrs,
+		PickServer:             pickServer,
+		DisableBinaryEncodedKeys: true,
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Set key1 on invalid server (server2), which is NOT in PickServer list
+	servers[2].setKeyDirectly("key1", "wrong_value")
+
+	// GetMulti should NOT find key1 because it's on invalid server
+	results, err := client.GetMulti(ctx, []string{"key1"})
+	require.NoError(t, err)
+
+	// Key should not be in results (rejected because from invalid server)
+	assert.Len(t, results, 0, "key on invalid server should be rejected")
+}
+
+// TestGetMultiCollisionResolution tests collision resolution when key exists on multiple servers
+func TestGetMultiCollisionResolution(t *testing.T) {
+	servers, addrs := createFakeServers(t)
+	require.GreaterOrEqual(t, len(servers), 2, "need at least 2 servers")
+	defer func() {
+		for _, s := range servers {
+			s.Close()
+		}
+	}()
+
+	ctx := context.Background()
+	// Custom PickServer: key1 -> [server0, server1]
+	pickServer := func(key string) []string {
+		if key == "key1" || strings.Contains(key, "key1") {
+			return []string{addrs[0], addrs[1]}
+		}
+		return []string{addrs[0]}
+	}
+
+	client, err := mc.New(&mc.Options{
+		Addrs:                  addrs,
+		PickServer:             pickServer,
+		DisableBinaryEncodedKeys: true,
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Set key1 on BOTH servers with different values
+	servers[0].setKeyDirectly("key1", "value_from_primary")
+	servers[1].setKeyDirectly("key1", "value_from_alternative")
+
+	// GetMulti should accept key from primary server (server0)
+	results, err := client.GetMulti(ctx, []string{"key1"})
+	require.NoError(t, err)
+
+	// Should get value from primary server (first in PickServer list)
+	assert.Len(t, results, 1)
+	// Note: both responses might come, but we accept the one from valid server
+	// The actual value depends on which response arrives first, but both are valid
+	assert.Contains(t, []string{"value_from_primary", "value_from_alternative"}, string(results["key1"].Value))
+}
+
+// TestGetMultiPartialKeys tests when some keys are found and some are not
+func TestGetMultiPartialKeys(t *testing.T) {
+	servers, addrs := createFakeServers(t)
+	require.GreaterOrEqual(t, len(servers), 2, "need at least 2 servers")
+	defer func() {
+		for _, s := range servers {
+			s.Close()
+		}
+	}()
+
+	ctx := context.Background()
+	client, err := mc.New(&mc.Options{
+		Addrs:                  addrs,
+		DisableBinaryEncodedKeys: true,
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Set only some keys
+	servers[0].setKeyDirectly("key1", "value1")
+	servers[0].setKeyDirectly("key2", "value2")
+	// key3 is not set
+
+	results, err := client.GetMulti(ctx, []string{"key1", "key2", "key3"})
+	require.NoError(t, err)
+
+	// Should find only key1 and key2
+	assert.Len(t, results, 2)
+	assert.Equal(t, "value1", string(results["key1"].Value))
+	assert.Equal(t, "value2", string(results["key2"].Value))
+	assert.NotContains(t, results, "key3")
+}
+
+// TestGetMultiPrimaryUnavailableAlternativeAvailable tests when primary is unavailable but alternative has key
+func TestGetMultiPrimaryUnavailableAlternativeAvailable(t *testing.T) {
+	servers, addrs := createFakeServers(t)
+	require.GreaterOrEqual(t, len(servers), 2, "need at least 2 servers")
+	defer func() {
+		for _, s := range servers {
+			s.Close()
+		}
+	}()
+
+	ctx := context.Background()
+	// Custom PickServer: key1 -> [server0, server1]
+	pickServer := func(key string) []string {
+		if key == "key1" || strings.Contains(key, "key1") {
+			return []string{addrs[0], addrs[1]}
+		}
+		return []string{addrs[0]}
+	}
+
+	client, err := mc.New(&mc.Options{
+		Addrs:                  addrs,
+		PickServer:             pickServer,
+		DisableBinaryEncodedKeys: true,
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Close primary server (server0)
+	servers[0].Close()
+
+	// Set key1 on alternative server (server1)
+	servers[1].setKeyDirectly("key1", "value1")
+
+	// GetMulti should find key1 on alternative server
+	results, err := client.GetMulti(ctx, []string{"key1"})
+	require.NoError(t, err)
+
+	assert.Len(t, results, 1)
+	assert.Equal(t, "value1", string(results["key1"].Value))
+}
+
+// TestGetMultiMultipleKeysDifferentServers tests multiple keys on different servers
+func TestGetMultiMultipleKeysDifferentServers(t *testing.T) {
+	servers, addrs := createFakeServers(t)
+	require.GreaterOrEqual(t, len(servers), 3, "need at least 3 servers")
+	defer func() {
+		for _, s := range servers {
+			s.Close()
+		}
+	}()
+
+	ctx := context.Background()
+	// Custom PickServer: each key goes to different servers
+	pickServer := func(key string) []string {
+		if key == "key1" || strings.Contains(key, "key1") {
+			return []string{addrs[0], addrs[1]}
+		}
+		if key == "key2" || strings.Contains(key, "key2") {
+			return []string{addrs[1], addrs[2]}
+		}
+		if key == "key3" || strings.Contains(key, "key3") {
+			return []string{addrs[2], addrs[0]}
+		}
+		return []string{addrs[0]}
+	}
+
+	client, err := mc.New(&mc.Options{
+		Addrs:                  addrs,
+		PickServer:             pickServer,
+		DisableBinaryEncodedKeys: true,
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Set keys on their primary servers
+	servers[0].setKeyDirectly("key1", "value1")
+	servers[1].setKeyDirectly("key2", "value2")
+	servers[2].setKeyDirectly("key3", "value3")
+
+	// GetMulti should find all keys
+	results, err := client.GetMulti(ctx, []string{"key1", "key2", "key3"})
+	require.NoError(t, err)
+
+	assert.Len(t, results, 3)
+	assert.Equal(t, "value1", string(results["key1"].Value))
+	assert.Equal(t, "value2", string(results["key2"].Value))
+	assert.Equal(t, "value3", string(results["key3"].Value))
+}
+
+// TestGetMultiStaleDataRejection tests that stale data from invalid server is rejected
+func TestGetMultiStaleDataRejection(t *testing.T) {
+	servers, addrs := createFakeServers(t)
+	require.GreaterOrEqual(t, len(servers), 3, "need at least 3 servers")
+	defer func() {
+		for _, s := range servers {
+			s.Close()
+		}
+	}()
+
+	ctx := context.Background()
+	// Custom PickServer: key1 -> [server0, server1] (NOT server2)
+	pickServer := func(key string) []string {
+		if key == "key1" || strings.Contains(key, "key1") {
+			return []string{addrs[0], addrs[1]}
+		}
+		return []string{addrs[0]}
+	}
+
+	client, err := mc.New(&mc.Options{
+		Addrs:                  addrs,
+		PickServer:             pickServer,
+		DisableBinaryEncodedKeys: true,
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Set correct value on valid server (server0)
+	servers[0].setKeyDirectly("key1", "correct_value")
+	// Set stale/wrong value on invalid server (server2)
+	servers[2].setKeyDirectly("key1", "stale_value")
+
+	// GetMulti should accept only value from valid server
+	results, err := client.GetMulti(ctx, []string{"key1"})
+	require.NoError(t, err)
+
+	assert.Len(t, results, 1)
+	assert.Equal(t, "correct_value", string(results["key1"].Value), "should reject stale data from invalid server")
+}
+
+// TestGetMultiAllKeysNotFound tests when no keys are found
+func TestGetMultiAllKeysNotFound(t *testing.T) {
+	servers, addrs := createFakeServers(t)
+	defer func() {
+		for _, s := range servers {
+			s.Close()
+		}
+	}()
+
+	ctx := context.Background()
+	client, err := mc.New(&mc.Options{
+		Addrs:                  addrs,
+		DisableBinaryEncodedKeys: true,
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Don't set any keys
+	results, err := client.GetMulti(ctx, []string{"key1", "key2", "key3"})
+	require.NoError(t, err)
+
+	// Should return empty map
+	assert.Len(t, results, 0)
+}
+
+// TestGetMultiMixedValidInvalidServers tests mixed scenario with valid and invalid servers
+func TestGetMultiMixedValidInvalidServers(t *testing.T) {
+	servers, addrs := createFakeServers(t)
+	require.GreaterOrEqual(t, len(servers), 3, "need at least 3 servers")
+	defer func() {
+		for _, s := range servers {
+			s.Close()
+		}
+	}()
+
+	ctx := context.Background()
+	// Custom PickServer:
+	// key1 -> [server0, server1] (valid)
+	// key2 -> [server1, server2] (valid)
+	// key3 -> [server0] (valid, but we'll put it on server2 which is invalid for key3)
+	pickServer := func(key string) []string {
+		if key == "key1" || strings.Contains(key, "key1") {
+			return []string{addrs[0], addrs[1]}
+		}
+		if key == "key2" || strings.Contains(key, "key2") {
+			return []string{addrs[1], addrs[2]}
+		}
+		if key == "key3" || strings.Contains(key, "key3") {
+			return []string{addrs[0]} // Only server0 is valid for key3
+		}
+		return []string{addrs[0]}
+	}
+
+	client, err := mc.New(&mc.Options{
+		Addrs:                  addrs,
+		PickServer:             pickServer,
+		DisableBinaryEncodedKeys: true,
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Set key1 on valid server (server0)
+	servers[0].setKeyDirectly("key1", "value1")
+	// Set key2 on valid server (server1)
+	servers[1].setKeyDirectly("key2", "value2")
+	// Set key3 on INVALID server (server2) - should be rejected
+	servers[2].setKeyDirectly("key3", "wrong_value")
+
+	results, err := client.GetMulti(ctx, []string{"key1", "key2", "key3"})
+	require.NoError(t, err)
+
+	// Should find key1 and key2, but NOT key3 (rejected because on invalid server)
+	assert.Len(t, results, 2)
+	assert.Equal(t, "value1", string(results["key1"].Value))
+	assert.Equal(t, "value2", string(results["key2"].Value))
+	assert.NotContains(t, results, "key3", "key3 should be rejected (on invalid server)")
+}
+
 func TestGetMultiWithUnavailableServers(t *testing.T) {
 	// Use only available servers from testServerAddrs
 	availableAddrs := checkAvailableServers(t, testServerAddrs)
@@ -541,17 +957,10 @@ func TestGetMultiWithUnavailableServers(t *testing.T) {
 	results, err := client.GetMulti(ctx, keys)
 	require.NoError(t, err)
 
-	// Verify we got all keys (Set wrote to available servers, GetMulti should find them)
-	// Note: GetMulti currently only tries the primary server, so if that server is down,
-	// it won't find keys. This is the issue we're testing.
-	if len(availableAddrs) > 1 {
-		// If we have multiple available servers, GetMulti might not find all keys
-		// because it only tries the primary server from PickServer
-		assert.Greater(t, len(results), 0, "should get at least some keys")
-	} else {
-		// If all servers are available, we should get all keys
-		assert.Len(t, results, len(keys), "should get all keys when all servers are available")
-	}
+	// Verify we got all keys (Set wrote to available servers, GetMulti broadcasts to all servers)
+	// GetMulti now broadcasts all keys to all servers and validates responses,
+	// so it should find keys even if primary server was unavailable during Set
+	assert.Len(t, results, len(keys), "should get all keys even if primary server was unavailable")
 
 	// Verify that keys we got have correct values
 	for key, item := range results {
