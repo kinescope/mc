@@ -83,30 +83,66 @@ func parseGetResponse(ctx context.Context, c *Client, buff *bufio.ReadWriter) (*
 		return nil, err
 	}
 	line = strings.TrimSpace(line)
-	if os.Getenv("MC_DEBUG") == "1" && len(line) > 0 && !strings.HasPrefix(line, "VA ") && line != "MN" && line != "EN" && line != "NF" && !strings.HasPrefix(line, "CLIENT_ERROR") && !strings.HasPrefix(line, "SERVER_ERROR") {
+	if os.Getenv("MC_DEBUG") == "1" && len(line) > 0 && !strings.HasPrefix(line, "VA ") && line != "MN" && !strings.HasPrefix(line, "EN") && !strings.HasPrefix(line, "NF") && !strings.HasPrefix(line, "CLIENT_ERROR") && !strings.HasPrefix(line, "SERVER_ERROR") {
 		fmt.Fprintf(os.Stderr, "[parseGetResponse DEBUG] Unexpected response line: %q (len=%d, bytes=%v)\n", line, len(line), []byte(line))
 	}
-	switch line {
-	case "MN":
+
+	// Handle MN (end of multi-get)
+	if line == "MN" {
 		return nil, errMnDone
-	case "EN", "NF":
+	}
+
+	// Handle EN/NF (not found) - can have parameters like "EN O1 kN8V5LuyRMRY= b"
+	if strings.HasPrefix(line, "EN") || strings.HasPrefix(line, "NF") {
+		// If it's just "EN" or "NF" without parameters, return cache miss
+		if line == "EN" || line == "NF" {
+			return nil, ErrCacheMiss
+		}
+		// If it has parameters (e.g., "EN O1 kN8V5LuyRMRY= b"), parse them for debug but still return cache miss
+		// This is an extended format where server returns opaque and key even for misses
+		if os.Getenv("MC_DEBUG") == "1" {
+			fields := strings.Fields(line)
+			var opaque int
+			var key string
+			for _, field := range fields[1:] {
+				if len(field) > 0 {
+					switch field[0] {
+					case 'O':
+						if len(field) > 1 {
+							opaque, _ = strconv.Atoi(field[1:])
+						}
+					case 'k':
+						if len(field) > 1 {
+							key = field[1:]
+						}
+					}
+				}
+			}
+			if opaque > 0 || key != "" {
+				fmt.Fprintf(os.Stderr, "[parseGetResponse DEBUG] EN/NF with params: opaque=%d, key=%q\n", opaque, key)
+			}
+		}
 		return nil, ErrCacheMiss
-	case "ERROR":
+	}
+
+	// Handle ERROR
+	if line == "ERROR" {
 		return nil, ErrNonexistentCommandName
-	default:
-		switch {
-		case strings.HasPrefix(line, "CLIENT_ERROR "):
-			msg := strings.TrimPrefix(line, "CLIENT_ERROR ")
-			if msg == "cannot increment or decrement non-numeric value" {
-				return nil, ErrBadIncrDec
-			}
-			return nil, &ClientError{
-				Message: msg,
-			}
-		case strings.HasPrefix(line, "SERVER_ERROR "):
-			return nil, &ClientError{
-				Message: strings.TrimPrefix(line, "SERVER_ERROR "),
-			}
+	}
+
+	// Handle CLIENT_ERROR and SERVER_ERROR
+	if strings.HasPrefix(line, "CLIENT_ERROR ") {
+		msg := strings.TrimPrefix(line, "CLIENT_ERROR ")
+		if msg == "cannot increment or decrement non-numeric value" {
+			return nil, ErrBadIncrDec
+		}
+		return nil, &ClientError{
+			Message: msg,
+		}
+	}
+	if strings.HasPrefix(line, "SERVER_ERROR ") {
+		return nil, &ClientError{
+			Message: strings.TrimPrefix(line, "SERVER_ERROR "),
 		}
 	}
 
