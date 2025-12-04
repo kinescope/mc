@@ -70,6 +70,7 @@ type (
 		deadline     time.Time
 		lastAccess   bool
 		earlyRecache int
+		returnKey    bool // Request key in response as fallback for key restoration
 	}
 	msOpts struct {
 		namespace         string

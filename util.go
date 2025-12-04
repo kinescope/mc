@@ -60,6 +60,11 @@ func (c *Client) makeGetCmd(key string, opt mgOpts) []byte {
 		cmd = strconv.AppendInt(cmd, int64(opt.earlyRecache), 10)
 	}
 
+	// Request key in response as fallback for key restoration (critical for CI)
+	if opt.returnKey {
+		cmd = append(cmd, ' ', 'k')
+	}
+
 	if !c.opts.DisableBinaryEncodedKeys {
 		cmd = append(cmd, ' ', 'b')
 	}
@@ -149,6 +154,11 @@ func parseGetResponse(ctx context.Context, c *Client, buff *bufio.ReadWriter) (*
 			var o uint64
 			if o, err = strconv.ParseUint(v[1:], 10, 0); err == nil {
 				item.opaque = int(o)
+			}
+		case 'k':
+			// Key is returned as a token after 'k'
+			if len(v) > 1 {
+				item.Key = v[1:]
 			}
 		}
 		if err != nil {

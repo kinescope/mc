@@ -3,6 +3,8 @@ package mc
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"sort"
 	"time"
 )
@@ -15,7 +17,9 @@ import (
 // Returns a map of found items (keys that don't exist are not included).
 // This is more efficient than multiple Get() calls, especially when
 // keys are on different servers.
+// Set MC_DEBUG=1 environment variable to enable detailed debug logging.
 func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ map[string]*Item, retErr error) {
+	debug := os.Getenv("MC_DEBUG") == "1"
 	if len(keys) == 0 {
 		return make(map[string]*Item), nil
 	}
@@ -91,6 +95,27 @@ func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ 
 	// Sort for deterministic order (important for Go 1.25+)
 	sort.Strings(serverList)
 
+	if debug {
+		fmt.Fprintf(os.Stderr, "[GetMulti DEBUG] Requested %d keys, broadcasting to %d servers: %v\n", len(keys), len(serverList), serverList)
+		fmt.Fprintf(os.Stderr, "[GetMulti DEBUG] Encoded keys (%d): %v\n", len(allEncodedKeys), allEncodedKeys)
+		for n, k := range keys {
+			if enc, exists := originalToEncoded[k]; exists {
+				fmt.Fprintf(os.Stderr, "[GetMulti DEBUG] Key[%d]: orig=%s, encoded=%s, opaque=%d, validServers=%v\n",
+					n, k, enc, keyNum[enc], func() []string {
+						if vs, ok := keyToValidServers[enc]; ok {
+							var addrs []string
+							for addr := range vs {
+								addrs = append(addrs, addr)
+							}
+							sort.Strings(addrs)
+							return addrs
+						}
+						return nil
+					}())
+			}
+		}
+	}
+
 	// Send all keys to each server (broadcast to handle cases where Set wrote to alternative servers)
 	for _, addr := range serverList {
 		ch := make(chan *Item)
@@ -98,9 +123,17 @@ func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ 
 		go func(addr string, ch chan *Item, keyNumMap map[string]int, allKeys []string, keyToValid map[string]map[string]bool, origToEncoded map[string]string, allEncodedKeys []string) {
 			defer close(ch)
 			localOpt := opt
+			localOpt.returnKey = true // Request key in response as fallback (critical for CI)
+
+			if debug {
+				fmt.Fprintf(os.Stderr, "[GetMulti DEBUG] Server %s: connecting, sending %d keys\n", addr, len(allEncodedKeys))
+			}
 
 			conn, err := c.pool.getConn(addr)
 			if err != nil {
+				if debug {
+					fmt.Fprintf(os.Stderr, "[GetMulti DEBUG] Server %s: connection failed: %v\n", addr, err)
+				}
 				return
 			}
 			if !deadline.IsZero() {
@@ -136,33 +169,112 @@ func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ 
 			}
 
 			// Read responses until we get "MN" (end of multi-get)
-			var item *Item
+			var (
+				item          *Item
+				responseCount int
+				acceptedCount int
+				rejectedCount int
+			)
 			for {
 				if item, err = parseGetResponse(ctx, c, conn.buff); err == nil {
-					// Restore original key using opaque value
+					responseCount++
+					var originalKey string
+					var encodedKey string
+					restoreMethod := "none"
+
+					// Try to restore key using opaque value first (preferred method)
 					if item.opaque > 0 && item.opaque <= len(allKeys) {
-						originalKey := allKeys[item.opaque-1]
-						// Get encoded key from precomputed map
-						if encodedKey, exists := origToEncoded[originalKey]; exists {
-							// Only accept key if it came from a valid server (from PickServer for this key)
-							if validServers, exists := keyToValid[encodedKey]; exists && validServers[addr] {
-								item.Key = originalKey
-								ch <- item
+						originalKey = allKeys[item.opaque-1]
+						if encKey, exists := origToEncoded[originalKey]; exists {
+							encodedKey = encKey
+							restoreMethod = "opaque"
+						}
+					}
+
+					// Fallback: use key from response if opaque failed or missing (critical for CI)
+					if encodedKey == "" && item.Key != "" {
+						responseKey := item.Key
+						// Key in response is in encoded form (base64 if binary, original if not)
+						// Find original key by matching encoded key
+						for orig, enc := range origToEncoded {
+							if enc == responseKey {
+								originalKey = orig
+								encodedKey = enc
+								restoreMethod = "key_from_response"
+								break
+							}
+						}
+						// If not found, try direct match (for non-binary keys)
+						if encodedKey == "" {
+							if orig, exists := origToEncoded[responseKey]; exists {
+								originalKey = responseKey
+								encodedKey = orig
+								restoreMethod = "key_direct_match"
+							} else {
+								// Try direct match for non-binary encoded keys
+								originalKey = responseKey
+								encodedKey = responseKey
+								restoreMethod = "key_fallback"
+							}
+						}
+					}
+
+					if debug {
+						fmt.Fprintf(os.Stderr, "[GetMulti DEBUG] Server %s: response[%d] opaque=%d, keyFromResponse=%q, restoreMethod=%s, originalKey=%q, encodedKey=%q\n",
+							addr, responseCount, item.opaque, item.Key, restoreMethod, originalKey, encodedKey)
+					}
+
+					// Only accept key if we found it and it came from a valid server
+					if encodedKey != "" {
+						if validServers, exists := keyToValid[encodedKey]; exists && validServers[addr] {
+							item.Key = originalKey
+							acceptedCount++
+							if debug {
+								fmt.Fprintf(os.Stderr, "[GetMulti DEBUG] Server %s: ACCEPTED key %q (encoded: %q)\n", addr, originalKey, encodedKey)
+							}
+							ch <- item
+						} else {
+							rejectedCount++
+							if debug {
+								fmt.Fprintf(os.Stderr, "[GetMulti DEBUG] Server %s: REJECTED key %q (encoded: %q) - invalid server (valid: %v)\n",
+									addr, originalKey, encodedKey, func() bool {
+										if vs, ok := keyToValid[encodedKey]; ok {
+											return vs[addr]
+										}
+										return false
+									}())
 							}
 							// If key came from invalid server, ignore it (might be stale or wrong)
+						}
+					} else {
+						rejectedCount++
+						if debug {
+							fmt.Fprintf(os.Stderr, "[GetMulti DEBUG] Server %s: REJECTED response[%d] - could not restore key (opaque=%d, keyFromResponse=%q)\n",
+								addr, responseCount, item.opaque, item.Key)
 						}
 					}
 					continue
 				}
 				// Check for end of multi-get (MN response)
 				if errors.Is(err, errMnDone) {
+					if debug {
+						fmt.Fprintf(os.Stderr, "[GetMulti DEBUG] Server %s: finished (responses=%d, accepted=%d, rejected=%d)\n",
+							addr, responseCount, acceptedCount, rejectedCount)
+					}
 					break
 				}
 				// ErrCacheMiss is expected for non-existent keys
 				if errors.Is(err, ErrCacheMiss) {
+					if debug {
+						fmt.Fprintf(os.Stderr, "[GetMulti DEBUG] Server %s: cache miss (expected)\n", addr)
+					}
 					continue
 				}
 				// Any other error is unexpected, stop reading
+				if debug {
+					fmt.Fprintf(os.Stderr, "[GetMulti DEBUG] Server %s: ERROR - %v (responses=%d, accepted=%d, rejected=%d)\n",
+						addr, err, responseCount, acceptedCount, rejectedCount)
+				}
 				return
 			}
 		}(addr, ch, keyNum, allKeys, keyToValidServers, originalToEncoded, allEncodedKeys)
@@ -174,5 +286,25 @@ func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ 
 			items[item.Key] = item
 		}
 	}
+
+	if debug {
+		fmt.Fprintf(os.Stderr, "[GetMulti DEBUG] FINAL RESULT: got %d items out of %d requested keys\n", len(items), len(keys))
+		if len(items) < len(keys) {
+			var missing []string
+			for _, k := range keys {
+				if _, found := items[k]; !found {
+					missing = append(missing, k)
+				}
+			}
+			fmt.Fprintf(os.Stderr, "[GetMulti DEBUG] MISSING KEYS (%d): %v\n", len(missing), missing)
+			var found []string
+			for k := range items {
+				found = append(found, k)
+			}
+			sort.Strings(found)
+			fmt.Fprintf(os.Stderr, "[GetMulti DEBUG] FOUND KEYS (%d): %v\n", len(found), found)
+		}
+	}
+
 	return items, nil
 }
