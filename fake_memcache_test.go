@@ -25,6 +25,7 @@ type fakeMemcacheServer struct {
 	listener net.Listener
 	closed   bool
 	addr     string
+	wg       sync.WaitGroup // Wait group for active connections
 }
 
 type cacheItem struct {
@@ -54,14 +55,28 @@ func newFakeMemcacheServer() (*fakeMemcacheServer, error) {
 
 func (s *fakeMemcacheServer) acceptConnections() {
 	for {
+		s.mu.RLock()
+		closed := s.closed
+		s.mu.RUnlock()
+		if closed {
+			return
+		}
+
 		conn, err := s.listener.Accept()
 		if err != nil {
-			if s.closed {
+			s.mu.RLock()
+			closed = s.closed
+			s.mu.RUnlock()
+			if closed {
 				return
 			}
 			continue
 		}
-		go s.handleConnection(conn)
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.handleConnection(conn)
+		}()
 	}
 }
 
@@ -71,6 +86,14 @@ func (s *fakeMemcacheServer) handleConnection(conn net.Conn) {
 	writer := bufio.NewWriter(conn)
 
 	for {
+		// Check if server is closed
+		s.mu.RLock()
+		closed := s.closed
+		s.mu.RUnlock()
+		if closed {
+			return
+		}
+
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			return
@@ -440,8 +463,21 @@ func (s *fakeMemcacheServer) setKeyDirectly(key, value string) {
 }
 
 func (s *fakeMemcacheServer) Close() error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil
+	}
 	s.closed = true
-	return s.listener.Close()
+	s.mu.Unlock()
+
+	// Close listener to stop accepting new connections
+	err := s.listener.Close()
+
+	// Wait for all active connections to finish
+	s.wg.Wait()
+
+	return err
 }
 
 func (s *fakeMemcacheServer) Addr() string {

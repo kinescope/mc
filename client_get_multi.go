@@ -19,18 +19,20 @@ func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ 
 		return make(map[string]*Item), nil
 	}
 
-	// Map: encoded key -> opaque value
-	keyNum := make(map[string]int, len(keys))
-	// Map: encoded key -> set of valid servers (from PickServer)
-	keyToValidServers := make(map[string]map[string]bool, len(keys))
-	// Map: original key -> encoded key (for fast lookup)
-	originalToEncoded := make(map[string]string, len(keys))
-	// Map: server -> all encoded keys (for broadcasting)
-	serverToKeys := make(map[string][]string)
-	// All unique servers
-	allServers := make(map[string]bool)
-	// Original keys for restoration
-	allKeys := make([]string, len(keys))
+	var (
+		// All unique servers
+		allServers = make(map[string]bool)
+		// Original keys for restoration
+		allKeys = make([]string, len(keys))
+		// Map: encoded key -> opaque value
+		keyNum = make(map[string]int, len(keys))
+		// Map: encoded key -> set of valid servers (from PickServer)
+		keyToValidServers = make(map[string]map[string]bool, len(keys))
+		// Map: original key -> encoded key (for fast lookup)
+		originalToEncoded = make(map[string]string, len(keys))
+		// Map: server -> all encoded keys (for broadcasting)
+		serverToKeys = make(map[string][]string)
+	)
 
 	for n, k := range keys {
 		key, err := c.encodeKey(k)
