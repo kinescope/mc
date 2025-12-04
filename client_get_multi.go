@@ -74,11 +74,19 @@ func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ 
 		}
 	}
 
+	// Build list of all encoded keys for broadcasting
+	allEncodedKeys := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if encodedKey, exists := originalToEncoded[k]; exists {
+			allEncodedKeys = append(allEncodedKeys, encodedKey)
+		}
+	}
+
 	// Send all keys to each server
 	for addr := range allServers {
 		ch := make(chan *Item)
 		chs = append(chs, ch)
-		go func(addr string, items []string, ch chan *Item, keyNumMap map[string]int, allKeys []string, keyToValid map[string]map[string]bool, origToEncoded map[string]string) {
+		go func(addr string, ch chan *Item, keyNumMap map[string]int, allKeys []string, keyToValid map[string]map[string]bool, origToEncoded map[string]string, allEncodedKeys []string) {
 			defer close(ch)
 			localOpt := opt
 
@@ -103,8 +111,8 @@ func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ 
 			default:
 			}
 
-			// Send all mg commands (broadcast all keys to this server)
-			for _, key := range items {
+			// Send all mg commands (broadcast ALL keys to this server)
+			for _, key := range allEncodedKeys {
 				localOpt.opaque = keyNumMap[key]
 				cmd := c.makeGetCmd(key, localOpt)
 				conn.buff.Write(cmd)
@@ -147,7 +155,7 @@ func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ 
 				// Any other error is unexpected, stop reading
 				return
 			}
-		}(addr, serverToKeys[addr], ch, keyNum, keys, keyToValidServers, originalToEncoded)
+		}(addr, ch, keyNum, allKeys, keyToValidServers, originalToEncoded, allEncodedKeys)
 	}
 
 	items := make(map[string]*Item, len(keys))
