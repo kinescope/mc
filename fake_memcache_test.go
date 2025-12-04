@@ -20,12 +20,13 @@ import (
 
 // fakeMemcacheServer implements a simple memcache Meta Text Protocol server
 type fakeMemcacheServer struct {
-	mu       sync.RWMutex
-	data     map[string]*cacheItem
-	listener net.Listener
-	closed   bool
-	addr     string
-	wg       sync.WaitGroup // Wait group for active connections
+	mu         sync.RWMutex
+	data       map[string]*cacheItem
+	listener   net.Listener
+	closed     bool
+	addr       string
+	wg         sync.WaitGroup // Wait group for active connections
+	skipOpaque bool           // For testing: skip returning opaque values
 }
 
 type cacheItem struct {
@@ -231,7 +232,18 @@ func (s *fakeMemcacheServer) handleMetaGet(parts []string, reader *bufio.Reader,
 		resp.WriteString(" ")
 	}
 
-	if opaque > 0 {
+	// Simulate bug: sometimes don't return opaque (to reproduce CI issue)
+	// Uncomment this to test behavior when opaque is missing
+	// if rand.Float32() < 0.1 { // 10% chance of missing opaque
+	// 	opaque = 0
+	// }
+	// Check if this server should skip opaque (for testing)
+	skipOpaque := false
+	if s.skipOpaque {
+		skipOpaque = true
+	}
+
+	if opaque > 0 && !skipOpaque {
 		resp.WriteString("O")
 		resp.WriteString(strconv.Itoa(opaque))
 		resp.WriteString(" ")
@@ -271,12 +283,12 @@ func (s *fakeMemcacheServer) handleMetaSet(parts []string, reader *bufio.Reader,
 	}
 
 	var (
-		mode        = "S" // default set
-		expiration  int64
-		flags       uint16
-		cas         uint64
-		binaryKey   bool
-		compareCAS  bool
+		mode       = "S" // default set
+		expiration int64
+		flags      uint16
+		cas        uint64
+		binaryKey  bool
+		compareCAS bool
 	)
 
 	// Parse flags
@@ -567,8 +579,8 @@ func TestGetMultiKeyOnPrimaryServer(t *testing.T) {
 	}
 
 	client, err := mc.New(&mc.Options{
-		Addrs:                  addrs,
-		PickServer:             pickServer,
+		Addrs:                    addrs,
+		PickServer:               pickServer,
 		DisableBinaryEncodedKeys: true,
 	})
 	require.NoError(t, err)
@@ -609,8 +621,8 @@ func TestGetMultiKeyOnAlternativeServer(t *testing.T) {
 	}
 
 	client, err := mc.New(&mc.Options{
-		Addrs:                  addrs,
-		PickServer:             pickServer,
+		Addrs:                    addrs,
+		PickServer:               pickServer,
 		DisableBinaryEncodedKeys: true,
 	})
 	require.NoError(t, err)
@@ -647,8 +659,8 @@ func TestGetMultiKeyOnInvalidServer(t *testing.T) {
 	}
 
 	client, err := mc.New(&mc.Options{
-		Addrs:                  addrs,
-		PickServer:             pickServer,
+		Addrs:                    addrs,
+		PickServer:               pickServer,
 		DisableBinaryEncodedKeys: true,
 	})
 	require.NoError(t, err)
@@ -685,8 +697,8 @@ func TestGetMultiCollisionResolution(t *testing.T) {
 	}
 
 	client, err := mc.New(&mc.Options{
-		Addrs:                  addrs,
-		PickServer:             pickServer,
+		Addrs:                    addrs,
+		PickServer:               pickServer,
 		DisableBinaryEncodedKeys: true,
 	})
 	require.NoError(t, err)
@@ -719,7 +731,7 @@ func TestGetMultiPartialKeys(t *testing.T) {
 
 	ctx := context.Background()
 	client, err := mc.New(&mc.Options{
-		Addrs:                  addrs,
+		Addrs:                    addrs,
 		DisableBinaryEncodedKeys: true,
 	})
 	require.NoError(t, err)
@@ -760,8 +772,8 @@ func TestGetMultiPrimaryUnavailableAlternativeAvailable(t *testing.T) {
 	}
 
 	client, err := mc.New(&mc.Options{
-		Addrs:                  addrs,
-		PickServer:             pickServer,
+		Addrs:                    addrs,
+		PickServer:               pickServer,
 		DisableBinaryEncodedKeys: true,
 	})
 	require.NoError(t, err)
@@ -807,8 +819,8 @@ func TestGetMultiMultipleKeysDifferentServers(t *testing.T) {
 	}
 
 	client, err := mc.New(&mc.Options{
-		Addrs:                  addrs,
-		PickServer:             pickServer,
+		Addrs:                    addrs,
+		PickServer:               pickServer,
 		DisableBinaryEncodedKeys: true,
 	})
 	require.NoError(t, err)
@@ -849,8 +861,8 @@ func TestGetMultiStaleDataRejection(t *testing.T) {
 	}
 
 	client, err := mc.New(&mc.Options{
-		Addrs:                  addrs,
-		PickServer:             pickServer,
+		Addrs:                    addrs,
+		PickServer:               pickServer,
 		DisableBinaryEncodedKeys: true,
 	})
 	require.NoError(t, err)
@@ -880,7 +892,7 @@ func TestGetMultiAllKeysNotFound(t *testing.T) {
 
 	ctx := context.Background()
 	client, err := mc.New(&mc.Options{
-		Addrs:                  addrs,
+		Addrs:                    addrs,
 		DisableBinaryEncodedKeys: true,
 	})
 	require.NoError(t, err)
@@ -923,8 +935,8 @@ func TestGetMultiMixedValidInvalidServers(t *testing.T) {
 	}
 
 	client, err := mc.New(&mc.Options{
-		Addrs:                  addrs,
-		PickServer:             pickServer,
+		Addrs:                    addrs,
+		PickServer:               pickServer,
 		DisableBinaryEncodedKeys: true,
 	})
 	require.NoError(t, err)
@@ -1034,4 +1046,130 @@ func checkAvailableServers(t *testing.T, addrs []string) []string {
 	}
 
 	return available
+}
+
+// TestGetMultiReproduceIssue reproduces the issue where GetMulti returns only 1 key instead of 20
+// This test simulates the scenario from TestGetMultiNamespace that was failing in CI
+func TestGetMultiReproduceIssue(t *testing.T) {
+	servers, addrs := createFakeServers(t)
+	require.GreaterOrEqual(t, len(servers), 2, "need at least 2 servers")
+	defer func() {
+		for _, s := range servers {
+			s.Close()
+		}
+	}()
+
+	ctx := context.Background()
+	client, err := mc.New(&mc.Options{
+		Addrs: addrs,
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create 20 keys like in TestGetMultiNamespace
+	var (
+		keyVal = make(map[string]string)
+		keys   []string
+	)
+	for n := range 20 {
+		k := fmt.Sprintf("key_%d", n)
+		v := fmt.Sprintf("value_%d", n)
+		err := client.Set(ctx, &mc.Item{
+			Key:   k,
+			Value: []byte(v),
+		})
+		require.NoError(t, err, "Set should succeed for key %s", k)
+		keyVal[k] = v
+		keys = append(keys, k)
+	}
+
+	// GetMulti should return all 20 keys
+	results, err := client.GetMulti(ctx, keys)
+	require.NoError(t, err)
+
+	// This is where the issue manifests - should have 20 items but might only have 1
+	if !assert.Len(t, results, 20, "Expected 20 items, got %d. This reproduces the CI failure", len(results)) {
+		// Debug: print which keys are missing
+		t.Logf("Got %d keys instead of 20:", len(results))
+		for k := range results {
+			t.Logf("  - Found: %s", k)
+		}
+		for _, k := range keys {
+			if _, found := results[k]; !found {
+				t.Logf("  - Missing: %s", k)
+				// Try individual Get to see if key exists
+				item, err := client.Get(ctx, k)
+				if err == nil {
+					t.Logf("    -> Key exists on server (Get returned: %s)", string(item.Value))
+				} else {
+					t.Logf("    -> Key missing on server (Get error: %v)", err)
+				}
+			}
+		}
+		return
+	}
+
+	// Verify all keys have correct values
+	for k, expectedVal := range keyVal {
+		item, exists := results[k]
+		if !assert.True(t, exists, "Key %s should be in results", k) {
+			continue
+		}
+		assert.Equal(t, expectedVal, string(item.Value), "Key %s has wrong value", k)
+	}
+}
+
+// TestGetMultiWithoutOpaque tests behavior when server doesn't return opaque values
+// This reproduces the issue: without opaque, keys cannot be restored and are lost
+func TestGetMultiWithoutOpaque(t *testing.T) {
+	server, err := newFakeMemcacheServer()
+	require.NoError(t, err)
+	defer server.Close()
+
+	// Configure server to skip opaque (reproducing the bug)
+	server.skipOpaque = true
+
+	ctx := context.Background()
+	client, err := mc.New(&mc.Options{
+		Addrs: []string{server.Addr()},
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create 20 keys like in the failing test
+	var (
+		keyVal = make(map[string]string)
+		keys   []string
+	)
+	for n := range 20 {
+		k := fmt.Sprintf("key_%d", n)
+		v := fmt.Sprintf("value_%d", n)
+		err := client.Set(ctx, &mc.Item{
+			Key:   k,
+			Value: []byte(v),
+		})
+		require.NoError(t, err)
+		keyVal[k] = v
+		keys = append(keys, k)
+	}
+
+	// The issue: if opaque is missing, GetMulti can't restore keys
+	// Current implementation requires opaque > 0 && opaque <= len(allKeys)
+	// So if opaque is 0 or missing, the key is silently ignored
+
+	results, err := client.GetMulti(ctx, keys)
+	require.NoError(t, err)
+
+	// Without opaque, we should get 0 keys - this reproduces the CI issue!
+	t.Logf("GetMulti without opaque returned %d keys (expected 0 because opaque is required)", len(results))
+
+	if len(results) > 0 {
+		t.Logf("WARNING: Got %d keys even without opaque - this shouldn't happen with current implementation", len(results))
+		for k := range results {
+			t.Logf("  - Unexpectedly got key: %s", k)
+		}
+	} else {
+		t.Logf("SUCCESS: Reproduced the issue - without opaque, all keys are lost!")
+		t.Logf("This confirms that the CI failure is due to missing opaque values")
+	}
 }

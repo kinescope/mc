@@ -91,7 +91,7 @@ func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ 
 	// Sort for deterministic order (important for Go 1.25+)
 	sort.Strings(serverList)
 
-	// Send all keys to each server
+	// Send all keys to each server (broadcast to handle cases where Set wrote to alternative servers)
 	for _, addr := range serverList {
 		ch := make(chan *Item)
 		chs = append(chs, ch)
@@ -121,6 +121,7 @@ func (c *Client) GetMulti(ctx context.Context, keys []string, o ...MgOption) (_ 
 			}
 
 			// Send all mg commands (broadcast ALL keys to this server)
+			// This ensures we find keys even if Set wrote to alternative servers
 			for _, key := range allEncodedKeys {
 				localOpt.opaque = keyNumMap[key]
 				cmd := c.makeGetCmd(key, localOpt)
