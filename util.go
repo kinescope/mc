@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 
@@ -75,9 +77,15 @@ func (c *Client) makeGetCmd(key string, opt mgOpts) []byte {
 func parseGetResponse(ctx context.Context, c *Client, buff *bufio.ReadWriter) (*Item, error) {
 	line, err := buff.ReadString('\n')
 	if err != nil {
+		if os.Getenv("MC_DEBUG") == "1" {
+			fmt.Fprintf(os.Stderr, "[parseGetResponse DEBUG] ReadString error: %v\n", err)
+		}
 		return nil, err
 	}
 	line = strings.TrimSpace(line)
+	if os.Getenv("MC_DEBUG") == "1" && len(line) > 0 && !strings.HasPrefix(line, "VA ") && line != "MN" && line != "EN" && line != "NF" && !strings.HasPrefix(line, "CLIENT_ERROR") && !strings.HasPrefix(line, "SERVER_ERROR") {
+		fmt.Fprintf(os.Stderr, "[parseGetResponse DEBUG] Unexpected response line: %q (len=%d, bytes=%v)\n", line, len(line), []byte(line))
+	}
 	switch line {
 	case "MN":
 		return nil, errMnDone
@@ -103,6 +111,10 @@ func parseGetResponse(ctx context.Context, c *Client, buff *bufio.ReadWriter) (*
 	}
 
 	if !strings.HasPrefix(line, "VA ") {
+		// Debug: log unexpected response line
+		if os.Getenv("MC_DEBUG") == "1" {
+			fmt.Fprintf(os.Stderr, "[parseGetResponse DEBUG] Unexpected response line (not VA): %q (len=%d)\n", line, len(line))
+		}
 		return nil, ErrCorruptGetResultRead
 	}
 
@@ -167,9 +179,22 @@ func parseGetResponse(ctx context.Context, c *Client, buff *bufio.ReadWriter) (*
 	}
 
 	if _, err := io.ReadFull(buff, item.Value); err != nil {
+		// Debug: log read error
+		if os.Getenv("MC_DEBUG") == "1" {
+			fmt.Fprintf(os.Stderr, "[parseGetResponse DEBUG] ReadFull error: %v (expected size=%d)\n", err, size+2)
+		}
 		return nil, err
 	}
 	if !bytes.HasSuffix(item.Value, crlf) {
+		// Debug: log missing crlf
+		if os.Getenv("MC_DEBUG") == "1" {
+			previewLen := len(item.Value)
+			if previewLen > 50 {
+				previewLen = 50
+			}
+			fmt.Fprintf(os.Stderr, "[parseGetResponse DEBUG] Value does not end with crlf: %q (len=%d, expected=%d)\n",
+				string(item.Value[:previewLen]), len(item.Value), size+2)
+		}
 		return nil, ErrCorruptGetResultRead
 	}
 
