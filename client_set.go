@@ -38,7 +38,8 @@ func (c *Client) Append(ctx context.Context, i *Item, o ...MsOption) error {
 	return c.populateOne(ctx, "A", i, 0, o...)
 }
 
-// Prepend prepends data to an existing item. If the item doesn't exist, it returns ErrNotStored.
+// Prepend prepends data to an existing item. If the item doesn't exist and WithExpiration
+// is provided, the item will be created with that TTL (autovivify). Otherwise returns ErrNotStored.
 func (c *Client) Prepend(ctx context.Context, i *Item, o ...MsOption) error {
 	return c.populateOne(ctx, "P", i, 0, o...)
 }

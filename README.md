@@ -146,6 +146,12 @@ err := client.Append(ctx, &mc.Item{
 	Key:   "key",
 	Value: []byte("value"),
 }, mc.WithExpiration(3600)) // Create with 1 hour TTL if missing
+
+// Prepend with autovivify (create if doesn't exist)
+err := client.Prepend(ctx, &mc.Item{
+	Key:   "key",
+	Value: []byte("prefix"),
+}, mc.WithExpiration(3600)) // Create with 1 hour TTL if missing
 ```
 
 ### Increment and Decrement
@@ -303,21 +309,23 @@ if item.Stale() {
 }
 ```
 
-#### Hot Key Detection & Cache Invalidation
+#### Hot Key Detection & Management
 
-Identify and manage frequently accessed (hot) cache keys:
+Identify and manage frequently accessed (hot) cache keys. For hot keys, avoid deletion as it causes cache misses. Instead, update values in place or use early recache:
 
 ```go
 // Track hot keys using hit status and last access time
 item, err := client.Get(ctx, "key", mc.WithHit(), mc.WithLastAccess())
 if item.Hit() && item.LastAccess() < 10 {
-	// Key is hot - invalidate to force refresh
-	client.Del(ctx, "key")
-	// Re-populate with fresh data
+	// Key is hot - update value without deletion to avoid cache misses
+	// This keeps the key available while refreshing data
 	client.Set(ctx, &mc.Item{
 		Key:   "key",
 		Value: freshData,
 	}, mc.WithExpiration(3600))
+	
+	// Alternative: Use early recache for background refresh
+	// The key remains available while being refreshed
 }
 ```
 

@@ -921,8 +921,9 @@ func Example_casOverride() {
 }
 
 // ExampleHotKeyCacheInvalidation demonstrates using hit tracking and last access
-// time to identify and invalidate hot cache keys that are frequently accessed.
-// This is useful for cache warming strategies and managing high-traffic keys.
+// time to identify and manage hot cache keys that are frequently accessed.
+// Important: For hot keys, avoid deletion as it causes cache misses and potential
+// cache stampedes. Instead, update values in place or use early recache.
 func Example_hotKeyCacheInvalidation() {
 	memcache, err := mc.New(&mc.Options{
 		Addrs: []string{"127.0.0.1:11211"},
@@ -966,16 +967,8 @@ func Example_hotKeyCacheInvalidation() {
 		}
 	}
 
-	// Invalidate hot keys to force refresh
-	for _, key := range hotKeys {
-		err = memcache.Del(ctx, key)
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Printf("Invalidated hot key: %s\n", key)
-	}
-
-	// Re-populate with fresh data
+	// Update hot keys in place - avoids cache misses
+	// This is better than deletion as it keeps keys available
 	for _, key := range hotKeys {
 		err = memcache.Set(ctx, &mc.Item{
 			Key:   key,
@@ -984,15 +977,16 @@ func Example_hotKeyCacheInvalidation() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		fmt.Printf("Updated hot key: %s\n", key)
 	}
 
-	fmt.Println("Hot key cache invalidation completed")
+	fmt.Println("Hot key management completed")
 	// Output:
 	// Hot key detected: hot_key1 (last accessed 0 seconds ago)
 	// Hot key detected: hot_key2 (last accessed 0 seconds ago)
-	// Invalidated hot key: hot_key1
-	// Invalidated hot key: hot_key2
-	// Hot key cache invalidation completed
+	// Updated hot key: hot_key1
+	// Updated hot key: hot_key2
+	// Hot key management completed
 }
 
 func ExampleClient_Close() {
